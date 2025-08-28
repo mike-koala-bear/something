@@ -131,3 +131,22 @@ dmypy.json
 # Project specific
 *config.yml
 *matchmaking.json
+
+# === Engine binaries ===
+engines/*
+!engines/.gitkeep
+
+# === Neural networks (NNUE) ===
+networks/*
+!networks/.gitkeep
+
+# === Syzygy tablebases ===
+syzygy/*
+!syzygy/.gitkeep
+
+# === Opening books ===
+books/*.bin
+!books/.gitkeep
+
+# === PGN databases (anywhere) ===
+*.pgn

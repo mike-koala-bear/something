@@ -75,28 +75,58 @@ class Engine:
     def name(self) -> str:
         return self.engine.id['name']
 
+    def classify_tc(self, base: float, inc: float) -> str:
+        """Classify time control: base in seconds, inc in seconds."""
+        if base <= 60:   # under 1 minute
+            return "hyperbullet"
+        elif base <= 120 or (base <= 180 and inc <= 1):
+            return "bullet"
+        elif base <= 600 or (base <= 900 and inc <= 2):
+            return "blitz"
+        elif base <= 3600:
+            return "rapid"
+        else:
+            return "classical"
+
     async def make_move(self,
                         board: chess.Board,
                         white_time: float,
                         black_time: float,
                         increment: float
                         ) -> tuple[chess.Move, chess.engine.InfoDict]:
-        if len(board.move_stack) < 2:
-            time_limit = 10.0 if self.opponent.is_engine else 5.0
-            if self.limit_config.time:
-                time_limit = min(time_limit, self.limit_config.time)
+        my_time = white_time if board.turn == chess.WHITE else black_time
+        tc_category = self.classify_tc(max(white_time, black_time), increment)
 
-            limit = chess.engine.Limit(time=time_limit, depth=self.limit_config.depth, nodes=self.limit_config.nodes)
-            ponder = False
-        else:
-            limit = chess.engine.Limit(white_clock=white_time, white_inc=increment,
-                                       black_clock=black_time, black_inc=increment,
-                                       time=self.limit_config.time,
-                                       depth=self.limit_config.depth,
-                                       nodes=self.limit_config.nodes)
-            ponder = self.ponder
+        # 🚀 per-category think times
+        if tc_category == "hyperbullet":   # ½+0, 30s, etc.
+            think_time = 0.05 if my_time < 5 else 0.12  # 50–120 ms only
+        elif tc_category == "bullet":
+            think_time = 0.2 if my_time < 30 else 0.5
+        elif tc_category == "blitz":
+            think_time = 0.8 if my_time < 30 else 1.5
+        elif tc_category == "rapid":
+            think_time = 2.5 if my_time < 60 else 4.0
+        else:  # classical
+            think_time = 6.0
 
-        result = await self.engine.play(board, limit, info=chess.engine.INFO_ALL, ponder=ponder)
+        # boost if increment ≥ 2s (safe to think more)
+        if increment >= 2:
+            think_time *= 1.5
+
+        if self.limit_config.time:
+            think_time = min(think_time, self.limit_config.time)
+
+        limit = chess.engine.Limit(
+            white_clock=white_time,
+            white_inc=increment,
+            black_clock=black_time,
+            black_inc=increment,
+            time=think_time,
+            depth=self.limit_config.depth,
+            nodes=self.limit_config.nodes
+        )
+
+        result = await self.engine.play(board, limit, info=chess.engine.INFO_ALL, ponder=self.ponder)
 
         if not result.move:
             raise RuntimeError('Engine could not make a move!')
