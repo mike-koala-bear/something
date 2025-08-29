@@ -29,14 +29,14 @@ class Event_Handler:
                     self._print_challenge_event(event['challenge'])
 
                     if decline_reason := self.challenge_validator.get_decline_reason(event['challenge']):
-                        print(128 * '‾')
+                        print(128 * '-')
                         await self.api.decline_challenge(event['challenge']['id'], decline_reason)
                         continue
 
                     self.game_manager.add_challenge(Challenge(event['challenge']['id'],
                                                               event['challenge']['challenger']['name']))
                     print('Challenge added to queue.')
-                    print(128 * '‾')
+                    print(128 * '-')
                 case 'gameStart':
                     self.game_manager.on_game_started(event['game'])
                 case 'gameFinish':
@@ -56,7 +56,7 @@ class Event_Handler:
                                                                  event['challenge']['challenger']['name']))
                     self._print_challenge_event(event['challenge'])
                     print('Challenge has been canceled.')
-                    print(128 * '‾')
+                    print(128 * '-')
                 case _:
                     print(event)
 
