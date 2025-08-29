@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "name": "tacticalbot",
+  "version": "1.0.0",
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "fs": "^0.0.1-security",
+    "node-uci": "^1.3.4"
+  }
+}

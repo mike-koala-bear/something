@@ -65,9 +65,20 @@ class Lichess_Game:
         is_white = game_info.white_name == username
         engine_key = cls._get_engine_key(config, board, is_white, game_info)
         syzygy_config = cls._get_syzygy_config(config, board)
-        engine = await Engine.from_config(config.engines[engine_key],
-                                          syzygy_config,
-                                          game_info.black_opponent if is_white else game_info.white_opponent)
+
+        # --- Auto select bullet vs standard engine profile ---
+        base_seconds = game_info.initial_time_ms / 1000.0
+        inc_seconds = game_info.increment_ms / 1000.0
+
+        engine = await Engine.from_dual_config(
+            config.engines["bullet"],
+            config.engines["standard"],
+            syzygy_config,
+            game_info.black_opponent if is_white else game_info.white_opponent,
+            base_seconds,
+            inc_seconds
+        )
+
         return cls(api, config, username, game_info, board, syzygy_config, engine_key, engine)
 
     @staticmethod
@@ -357,17 +368,14 @@ class Lichess_Game:
             for alias in map(str.lower, self.board.aliases):
                 if key := check_book_key(alias):
                     return key
-
             return
 
         if self.board.chess960:
             if key := check_book_key('chess960'):
                 return key
-
         else:
             if key := check_book_key(self.game_info.tc_str):
                 return key
-
             if key := check_book_key(self.game_info.speed):
                 return key
 
@@ -725,15 +733,11 @@ class Lichess_Game:
         if value > 0:
             if value + halfmove_clock <= 100:
                 return 2
-
             return 1
-
         if value < 0:
             if value - halfmove_clock >= -100:
                 return -2
-
             return -1
-
         return 0
 
     def _get_syzygy_tablebase(self) -> chess.syzygy.Tablebase | None:
@@ -796,7 +800,6 @@ class Lichess_Game:
         if self.board.turn:
             move_number = f'{self.board.fullmove_number}.'
             return f'{move_number:4} {self.board.san(move)}'
-
         move_number = f'{self.board.fullmove_number}...'
         return f'{move_number:6} {self.board.san(move)}'
 
@@ -849,9 +852,7 @@ class Lichess_Game:
             if cp_score := score.pov(self.board.turn).score():
                 cp_score /= 100
                 return format(cp_score, '+7.2f')
-
             return '   0.00'
-
         return str(score.pov(self.board.turn))
 
     def _format_egtb_info(self, outcome: str, dtz: int | None = None, dtm: int | None = None) -> str:
@@ -859,7 +860,6 @@ class Lichess_Game:
         dtz_str = f'DTZ: {dtz}' if dtz else ''
         dtm_str = f'DTM: {dtm}' if dtm else ''
         delimiter = 5 * ' '
-
         return delimiter.join(filter(None, [outcome_str, dtz_str, dtm_str]))
 
     def _format_book_info(self, weight: float, learn: int) -> str:
@@ -870,7 +870,6 @@ class Lichess_Game:
             draw = (learn & 0b1111111111) / 10.2
             loss = max(100.0 - win - draw, 0.0)
             output += f'     WDL: {win:5.1f} % {draw:5.1f} % {loss:5.1f} %'
-
         return output
 
     def _get_move_sources(self) -> list[Callable[[], Awaitable[Move_Response | None]]]:
@@ -943,6 +942,5 @@ class Lichess_Game:
     def _has_mate_score(self) -> bool:
         if not self.scores:
             return False
-
         mate = self.scores[-1].relative.mate()
         return mate is not None and mate > 0
