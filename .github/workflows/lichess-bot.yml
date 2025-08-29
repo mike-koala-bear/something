@@ -62,3 +62,4 @@ jobs:
         run: |
           echo "🤖 Starting bot..."
           python3 user_interface.py -u "matchmaking"
+          python3 user_interface.py -u "tournament 3a8XhaBL"
