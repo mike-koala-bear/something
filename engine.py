@@ -1,3 +1,5 @@
+# pylint: disable=unused-variable, unused-argument
+# pylint: disable=broad-exception-caught
 # engine.py
 # Stronger BotLi engine wrapper with tactical boosting and deeper fallback.
 # - auto-tunes Threads/Hash (if auto_tune enabled)
@@ -40,7 +42,7 @@ def _detect_system_resources() -> dict:
     return {"cpu_count": cpu, "total_ram_mb": ram_mb}
 
 
-def _recommend_threads_and_hash(role: str = "standard", cpu_count: Optional[int] = None, total_ram_mb: Optional[int] = None) -> tuple[int, int]:
+def _recommend_threads_and_hash(role: str = "standard", cpu_count: Optional[int] = None, total_ram_mb: Optional[int] = None) -> tuple[int, int]:  # pylint: disable=line-too-long
     cpu = cpu_count or os.cpu_count() or 4
     ram = total_ram_mb or 8192
     usable = max(1, cpu - 1)
@@ -84,12 +86,12 @@ class Engine:
     async def from_config(cls,
                           engine_config: Engine_Config,
                           syzygy_config: Syzygy_Config,
-                          opponent: chess.engine.Opponent) -> 'Engine':
+                          opponent: chess.engine.Opponent) -> "Engine":
         stderr = subprocess.DEVNULL if engine_config.silence_stderr else None
         transport, engine = await chess.engine.popen_uci(engine_config.path, stderr=stderr)
         inst = cls(transport, engine, engine_config.ponder, opponent, engine_config.limits,
-                   getattr(engine_config, 'move_overhead_multiplier', 1.0),
-                   getattr(engine_config, 'auto_tune', True))
+                   getattr(engine_config, "move_overhead_multiplier", 1.0),
+                   getattr(engine_config, "auto_tune", True))
         await inst._configure_engine(engine, engine_config, syzygy_config)
         try:
             await engine.send_opponent_information(opponent=opponent)
@@ -104,17 +106,17 @@ class Engine:
                                syzygy_config: Syzygy_Config,
                                opponent: chess.engine.Opponent,
                                base_seconds: float,
-                               inc_seconds: float) -> 'Engine':
+                               inc_seconds: float) -> "Engine":
         dummy = cls(None, None, False, opponent, standard_config.limits,
-                    getattr(standard_config, 'move_overhead_multiplier', 1.0),
-                    getattr(standard_config, 'auto_tune', True))
+                    getattr(standard_config, "move_overhead_multiplier", 1.0),
+                    getattr(standard_config, "auto_tune", True))
         tc_cat = dummy.classify_tc(base_seconds, inc_seconds)
         chosen = bullet_config if tc_cat in ("bullet", "hyperbullet") else standard_config
         stderr = subprocess.DEVNULL if chosen.silence_stderr else None
         transport, engine = await chess.engine.popen_uci(chosen.path, stderr=stderr)
         inst = cls(transport, engine, chosen.ponder, opponent, chosen.limits,
-                   getattr(chosen, 'move_overhead_multiplier', 1.0),
-                   getattr(chosen, 'auto_tune', True))
+                   getattr(chosen, "move_overhead_multiplier", 1.0),
+                   getattr(chosen, "auto_tune", True))
         await inst._configure_engine(engine, chosen, syzygy_config)
         try:
             await engine.send_opponent_information(opponent=opponent)
@@ -127,8 +129,8 @@ class Engine:
         stderr = subprocess.DEVNULL if engine_config.silence_stderr else None
         transport, engine = await chess.engine.popen_uci(engine_config.path, stderr=stderr)
         temp = cls(transport, engine, False, None, engine_config.limits,
-                   getattr(engine_config, 'move_overhead_multiplier', 1.0),
-                   getattr(engine_config, 'auto_tune', True))
+                   getattr(engine_config, "move_overhead_multiplier", 1.0),
+                   getattr(engine_config, "auto_tune", True))
         dummy_syzygy = Syzygy_Config(False, [], 0, False)
         await temp._configure_engine(engine, engine_config, dummy_syzygy)
         result = await engine.play(chess.Board(), chess.engine.Limit(time=0.1))
@@ -144,7 +146,7 @@ class Engine:
                                 syzygy_config: Syzygy_Config) -> None:
         cpu = self._resources.get("cpu_count")
         ram = self._resources.get("total_ram_mb")
-        role = "bullet" if self.classify_tc(self.limit_config.time or 0, 0) in ("bullet", "hyperbullet") else "standard"
+        role = "bullet" if self.classify_tc(self.limit_config.time or 0, 0) in ("bullet", "hyperbullet") else "standard"  # pylint: disable=line-too-long
 
         threads_provided = any(k.lower() == "threads" for k in engine_config.uci_options.keys())
         hash_provided = any(k.lower() == "hash" for k in engine_config.uci_options.keys())
@@ -156,8 +158,8 @@ class Engine:
             if not hash_provided:
                 engine_config.uci_options.setdefault("Hash", rec_hash)
 
-        if 'MultiPV' not in engine_config.uci_options and 'MultiPV' in engine.options:
-            engine_config.uci_options.setdefault('MultiPV', 1)
+        if "MultiPV" not in engine_config.uci_options and "MultiPV" in engine.options:
+            engine_config.uci_options.setdefault("MultiPV", 1)
 
         for name, value in engine_config.uci_options.items():
             if name.lower() in chess.engine.MANAGED_OPTIONS:
@@ -171,20 +173,20 @@ class Engine:
                 print(f"[Engine configure] option {name} not supported by engine", file=sys.stderr)
 
         if syzygy_config.enabled:
-            if 'SyzygyPath' in engine.options and 'SyzygyPath' not in engine_config.uci_options:
-                delim = ';' if os.name == 'nt' else ':'
+            if "SyzygyPath" in engine.options and "SyzygyPath" not in engine_config.uci_options:
+                delim = ";" if os.name == "nt" else ":"
                 try:
-                    await engine.configure({'SyzygyPath': delim.join(syzygy_config.paths)})
+                    await engine.configure({"SyzygyPath": delim.join(syzygy_config.paths)})
                 except Exception:
                     print("Failed to set SyzygyPath", file=sys.stderr)
-            if 'SyzygyProbeDepth' in engine.options and 'SyzygyProbeDepth' not in engine_config.uci_options:
+            if "SyzygyProbeDepth" in engine.options and "SyzygyProbeDepth" not in engine_config.uci_options:
                 try:
-                    await engine.configure({'SyzygyProbeDepth': getattr(syzygy_config, 'probe_depth', 1)})
+                    await engine.configure({"SyzygyProbeDepth": getattr(syzygy_config, "probe_depth", 1)})
                 except Exception:
                     pass
-            if 'SyzygyProbeLimit' in engine.options and 'SyzygyProbeLimit' not in engine_config.uci_options:
+            if "SyzygyProbeLimit" in engine.options and "SyzygyProbeLimit" not in engine_config.uci_options:
                 try:
-                    await engine.configure({'SyzygyProbeLimit': syzygy_config.max_pieces})
+                    await engine.configure({"SyzygyProbeLimit": syzygy_config.max_pieces})
                 except Exception:
                     pass
 
@@ -243,7 +245,7 @@ class Engine:
         if tactical_score >= 3 or board.is_check():
             # boost factor depends on control; cap the boost to avoid mega delays
             boost = 1.8 if tc not in ("bullet", "hyperbullet") else 1.4
-            think_time = min(think_time * boost, max(think_time * boost, 10.0) if tc not in ("bullet", "hyperbullet") else think_time * boost)
+            think_time = min(think_time * boost, max(think_time * boost, 10.0) if tc not in ("bullet", "hyperbullet") else think_time * boost)  # pylint: disable=line-too-long
 
         # apply overhead multiplier
         try:
@@ -301,7 +303,7 @@ class Engine:
                         sc = f"{score.white().score()}"
                 except Exception:
                     sc = str(score)
-            print(f"[ENGINE INFO] move={result.move} depth={depth} score={sc} nodes={nodes} nps={nps} time={t}", file=sys.stderr)
+            print(f"[ENGINE INFO] move={result.move} depth={depth} score={sc} nodes={nodes} nps={nps} time={t}", file=sys.stderr)  # pylint: disable=line-too-long
         except Exception:
             pass
 
@@ -313,7 +315,7 @@ class Engine:
             # Use fallback when depth is shallow & position looks tactical or the score is close
             if result_depth < shallow_threshold and (tactical_score >= 2 or board.is_check()):
                 # spend up to extra_time (bounded) for a deeper analyze
-                extra_time = min(max(think_time * 2.5, 1.0), 12.0) if tc not in ("bullet", "hyperbullet") else think_time * 1.2
+                extra_time = min(max(think_time * 2.5, 1.0), 12.0) if tc not in ("bullet", "hyperbullet") else think_time * 1.2  # pylint: disable=line-too-long
                 analyze_limit = chess.engine.Limit(time=extra_time)
                 infos = await self.engine.analyse(board, analyze_limit, multipv=1)
                 # results may be a single dict (python-chess differs by version)
@@ -326,11 +328,11 @@ class Engine:
                     cand = pv[0]
                     # adopt candidate if different from initial move
                     if cand != result.move:
-                        # optionally we could prefer the candidate if it's evaluated better.
+                        # optionally we could prefer the candidate if it"s evaluated better.
                         # Compare scores if available
                         orig_score = (getattr(result, "info", {}) or {}).get("score")
                         new_score = best_info.get("score")
-                        # Prefer candidate when new_score is better for us (i.e. higher for side to move's perspective)
+                        # Prefer candidate when new_score is better for us (i.e. higher for side to move"s perspective)
                         prefer = False
                         try:
                             if orig_score is None:
@@ -339,13 +341,13 @@ class Engine:
                                 # both are Score objects; compare centipawn (white perspective)
                                 # For side to move == white -> higher better; if black to move -> lower better.
                                 if board.turn == chess.WHITE:
-                                    ws_orig = orig_score.white().score(mate_score=100000) if not orig_score.is_mate() else 1000000
-                                    ws_new = new_score.white().score(mate_score=100000) if not new_score.is_mate() else 1000000
+                                    ws_orig = orig_score.white().score(mate_score=100000) if not orig_score.is_mate() else 1000000  # pylint: disable=line-too-long
+                                    ws_new = new_score.white().score(mate_score=100000) if not new_score.is_mate() else 1000000  # pylint: disable=line-too-long
                                     prefer = ws_new >= ws_orig
                                 else:
                                     # black to move: smaller (more negative for white) -> better for black
-                                    ws_orig = orig_score.white().score(mate_score=100000) if not orig_score.is_mate() else -1000000
-                                    ws_new = new_score.white().score(mate_score=100000) if not new_score.is_mate() else -1000000
+                                    ws_orig = orig_score.white().score(mate_score=100000) if not orig_score.is_mate() else -1000000  # pylint: disable=line-too-long
+                                    ws_new = new_score.white().score(mate_score=100000) if not new_score.is_mate() else -1000000  # pylint: disable=line-too-long
                                     prefer = ws_new <= ws_orig
                         except Exception:
                             # If comparing fails, default to adopt candidate

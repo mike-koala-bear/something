@@ -1,10 +1,11 @@
+# pylint: disable=unused-variable, unused-argument
 #!/usr/bin/env python3
 # filter_strong.py <min_elo> <require_both>
 # Example: python3 filter_strong.py 2400 true
 import sys, re
 
 min_elo = int(sys.argv[1]) if len(sys.argv) > 1 else 2400
-require_both = (sys.argv[2].lower() == 'true') if len(sys.argv) > 2 else True
+require_both = (sys.argv[2].lower() == "true") if len(sys.argv) > 2 else True
 
 elo_re = re.compile(r'^\[(WhiteElo|BlackElo) "(\d+)"\]')
 buff = []
@@ -24,7 +25,7 @@ for line in sys.stdin:
         be = black_elo or 0
         keep = (we >= min_elo and be >= min_elo) if require_both else (we >= min_elo or be >= min_elo)
         if keep:
-            sys.stdout.write(''.join(buff))
+            sys.stdout.write("".join(buff))
             sys.stdout.write("\n")  # preserve empty line between games
         buff = []
         white_elo = None

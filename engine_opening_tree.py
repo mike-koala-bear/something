@@ -1,3 +1,4 @@
+# pylint: disable=unused-variable, unused-argument
 #!/usr/bin/env python3
 import chess
 import chess.engine
