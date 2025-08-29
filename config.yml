@@ -9,11 +9,10 @@ engines:
     silence_stderr: false
     move_overhead_multiplier: 19.5
     uci_options:
-      Threads: 6
-      Hash: 5120
+      Threads: 2
+      Hash: 256
       UCI_ShowWDL: true
       Move Overhead: 100
-      # EvalFile: "./engines/nn-1c0000000000.nnue" # only if net matches engine
     limits: {}
 
   standard:
@@ -22,15 +21,31 @@ engines:
     path: "./engines/sf"
     ponder: true
     silence_stderr: true
-    multipv: 1
     move_overhead_multiplier: 1.0
     auto_tune: true
     uci_options:
-      Threads: 6 # Maximum Threadripper power for longer games.
-      Hash: 4096 # Massive hash for deep calculation.
+      Threads: 4 # Maximum Threadripper power for longer games.
+      Hash: 516 # Massive hash for deep calculation.
       UCI_ShowWDL: true
       Move Overhead: 100
     limits: {}
+
+  variants: # Engine used for variants when no suitable special engine is configured.
+    dir: "./engines" # Directory containing the engine.
+    name: "fairy-stockfish" # Binary name of the engine to use.
+    ponder: true # Think on opponent's time.
+    silence_stderr: false # Suppresses stderr output.
+    move_overhead_multiplier: 1.0 # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
+    uci_options: # Arbitrary UCI options passed to the engine.
+      Threads: 4 # Max CPU threads the engine can use.
+      Hash: 256 # Max memory (in megabytes) the engine can allocate.
+      Move Overhead: 100 # Increase if your bot flags games too often.
+      Use NNUE: true
+      EvalFile: "3check-cb5f517c228b.nnue:antichess-dd3cbe53cd4e.nnue:atomic-2cf13ff256cc.nnue:crazyhouse-8ebf84784ad2.nnue:horde-28173ddccabe.nnue:kingofthehill-978b86d0e6a4.nnue:racingkings-636b95f085e3.nnue"
+    limits: # Limits that end the move calculation early.
+    #   time: 5.0 # Max time per move in seconds.
+    #   depth: 26 # Max depth per move.
+    #   nodes: 4000000 # Max nodes per move.
 
 gaviota:
   enabled: false
@@ -46,12 +61,36 @@ syzygy:
     max_pieces: 5
     probe_depth: 1
     instant_play: true
+  antichess:
+    enabled: false # Activate local syzygy endgame tablebases.
+    paths: # Paths to local syzygy endgame tablebases.
+      - "./antichess-syzygy"
+    max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
+    instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
+  atomic:
+    enabled: false # Activate local syzygy endgame tablebases.
+    paths: # Paths to local syzygy endgame tablebases.
+      - "./atomic-syzygy"
+    max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
+    instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
 
 opening_books:
-  enabled: false # TEMPORARY
+  enabled: true
   priority: 900
   books:
-    standard: { selection: best_move, names: [EngineTheory] }
+    standard_black:
+      selection: best_move
+      names:
+        - Stay
+        - Win
+        - Black
+    standard_white:
+      selection: best_move
+      names:
+        - Stay
+        - White
+        - Black
+        - Optimus
 
 online_moves:
   opening_explorer:
@@ -105,7 +144,7 @@ resign:
   against_humans: false
 
 challenge:
-  concurrency: 2
+  concurrency: 1
   max_takebacks: 0
   bullet_with_increment_only: false
   variants:
@@ -131,9 +170,9 @@ matchmaking:
     variant: standard
 
 messages:
-  greeting: "Hey! I'm TacticalBot running {engine}. Good luck!"
+  greeting: "Hey! I'm TacticalBot running on {engine}. Good luck!"
   goodbye: "Good game!"
-  greeting_spectators: "Hey! I'm TacticalBot running {engine}."
+  greeting_spectators: "Hey! I'm TacticalBot running on {engine}."
   goodbye_spectators: "Thanks for watching!"
 
 whitelist: []
@@ -144,3 +183,11 @@ books:
   Bullet: "./books/bullet.bin"
   Blitz: "./books/big_blitz.bin"
   EngineTheory: "./books/engine_theory.bin"
+  DefaultBook: "./books/DefaultBook.bin"
+  PerfectBook: "./books/perfect_book.bin"
+  StockfishBook: "./books/sfbook.bin"
+  Optimus: "./books/OPTIMUS2502.bin"
+  Stay: "./books/terimakichud.bin"
+  White: "./books/white.bin"
+  Black: "./books/black.bin"
+  Win: "./books/win.bin"
