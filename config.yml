@@ -9,8 +9,8 @@ engines:
     silence_stderr: false
     move_overhead_multiplier: 19.5
     uci_options:
-      Threads: 2
-      Hash: 256
+      Threads: 4
+      Hash: 516
       UCI_ShowWDL: true
       Move Overhead: 100
     limits: {}
@@ -144,7 +144,7 @@ resign:
   against_humans: false
 
 challenge:
-  concurrency: 1
+  concurrency: 2
   max_takebacks: 0
   bullet_with_increment_only: false
   variants:
