@@ -319,11 +319,11 @@ class Engine:
                 analyze_limit = chess.engine.Limit(time=extra_time)
                 infos = await self.engine.analyse(board, analyze_limit, multipv=1)
                 # results may be a single dict (python-chess differs by version)
-                if isinstance(infos, list) and len(infos) > 0:
-                    best_info = infos[0]
+                if isinstance(infos, list):
+                    best_info = infos[0] if infos else {}
                 else:
-                    best_info = infos
-                pv = best_info.get("pv") if isinstance(best_info, dict) else None
+                    best_info = infos if isinstance(infos, dict) else {}
+                pv = best_info.get("pv", [])
                 if pv and len(pv) > 0:
                     cand = pv[0]
                     # adopt candidate if different from initial move
@@ -354,12 +354,14 @@ class Engine:
                             prefer = True
                         if prefer:
                             print(f"[FALLBACK] adopting deeper candidate {cand} over {result.move}", file=sys.stderr)
-                            return cand, best_info
+                            # Ensure we return a dict even if best_info is not a dict
+                            return cand, best_info if isinstance(best_info, dict) else {}
         except Exception:
             # ignore fallback errors
             pass
 
-        return result.move, getattr(result, "info", {})
+        # Ensure we always return a dict for the info
+        return result.move, getattr(result, "info", {}) if isinstance(getattr(result, "info", {}), dict) else {}
 
     def _causes_repetition(self, board: chess.Board, move: chess.Move) -> bool:
         board.push(move)

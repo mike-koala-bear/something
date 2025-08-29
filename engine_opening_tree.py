@@ -25,8 +25,10 @@ def main():
     with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as engine:
         while ply < MAX_PLIES and not board.is_game_over():
             result = engine.analyse(board, chess.engine.Limit(depth=DEPTH))
-            best_move = result["pv"][0]
-            score = format_score(result["score"].pov(board.turn))
+            best_move = result.get("pv", [None])[0]
+            if best_move is None:
+                continue
+            score = format_score(result.get("score", chess.engine.Cp(0)).pov(board.turn))
 
             # Get SAN *before* making the move
             san = board.san(best_move)
