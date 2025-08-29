@@ -147,8 +147,8 @@ syzygy/*
 !syzygy/.gitkeep
 
 # === Opening books ===
-books/*.bin
-!books/.gitkeep
+# books/*.bin
+# books/.gitkeep
 
 # === PGN databases (anywhere) ===
 *.pgn
