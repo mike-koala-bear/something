@@ -1,0 +1,146 @@
+token: "lip_Lm1j499oMO6H9SuBmBEC"
+
+engines:
+  bullet:
+    dir: "./engines"
+    name: "sf"
+    path: "./engines/sf" # set to your arm64 binary
+    ponder: true
+    silence_stderr: false
+    move_overhead_multiplier: 19.5
+    uci_options:
+      Threads: 4
+      Hash: 5120
+      UCI_ShowWDL: true
+      Move Overhead: 100
+      # EvalFile: "./engines/nn-1c0000000000.nnue" # only if net matches engine
+    limits: {}
+
+  standard:
+    dir: "./engines"
+    name: "sf"
+    path: "./engines/sf"
+    ponder: true
+    silence_stderr: true
+    multipv: 1
+    move_overhead_multiplier: 1.0
+    auto_tune: true
+    uci_options:
+      Threads: 4 # Maximum Threadripper power for longer games.
+      Hash: 4096 # Massive hash for deep calculation.
+      UCI_ShowWDL: true
+      Move Overhead: 100
+    limits: {}
+
+gaviota:
+  enabled: false
+  paths:
+    - "/path/to/gaviota"
+  max_pieces: 5
+
+syzygy:
+  standard:
+    enabled: true
+    paths:
+      - "./syzygy"
+    max_pieces: 5
+    probe_depth: 1
+    instant_play: true
+
+opening_books:
+  enabled: false # TEMPORARY
+  priority: 900
+  books:
+    standard: { selection: best_move, names: [EngineTheory] }
+
+online_moves:
+  opening_explorer:
+    enabled: false
+    priority: 300
+    only_without_book: false
+    use_for_variants: false
+    min_time: 10
+    timeout: 5
+    min_games: 5
+    only_with_wins: false
+    selection: "performance"
+    anti: false
+
+  lichess_cloud:
+    enabled: false
+    priority: 800 # below opening_books (900) but above most online sources
+    only_without_book: false
+    use_for_variants: false
+    min_eval_depth: 14 # stronger depth
+    min_time: 5 # only use cloud when there's at least 5s left
+    timeout: 4 # wait up to 4s for cloud answer
+
+  chessdb:
+    enabled: false
+    priority: 800
+    only_without_book: false
+    min_candidates: 1
+    min_time: 0
+    timeout: 5
+    selection: "best"
+
+  online_egtb:
+    enabled: true
+    min_time: 20
+    timeout: 3
+
+offer_draw:
+  enabled: true # Activate whether the bot should offer draw.
+  score: 10 # Tighter draw threshold - only accept truly equal positions.
+  consecutive_moves: 5 # More moves required before considering draw.
+  min_game_length: 25 # Later draw offers to avoid early draws.
+  against_humans: false # Activate whether these settings should apply against humans.
+  allow_in_tournaments: true # Allow offering draws in tournaments even for 0.5+0 games. By default, draws are never offered in 0.5+0 games.
+  accept_30_second_draws: false
+
+resign:
+  enabled: false # Enable resignation to avoid hopeless positions.
+  score: -800 # Resign when clearly losing (8 pawns down).
+  consecutive_moves: 8 # More moves to confirm truly lost position.
+  against_humans: false
+
+challenge:
+  concurrency: 1
+  max_takebacks: 0
+  bullet_with_increment_only: false
+  variants:
+    - standard
+  time_controls:
+    - bullet
+    - blitz
+  bot_modes:
+    - rated
+    - casual
+  human_modes:
+    - rated
+    - casual
+
+matchmaking:
+  delay: 10
+  timeout: 30
+  selection: sequential
+  types:
+    hyper: { tc: 0.5+0 }
+  optional_settings:
+    rated: false
+    variant: standard
+
+messages:
+  greeting: "Hey! I'm TacticalBot running {engine}. Good luck!"
+  goodbye: "Good game!"
+  greeting_spectators: "Hey! I'm TacticalBot running {engine}."
+  goodbye_spectators: "Thanks for watching!"
+
+whitelist: []
+blacklist: []
+
+books:
+  HyperBullet: "./books/hyperbullet.bin"
+  Bullet: "./books/bullet.bin"
+  Blitz: "./books/big_blitz.bin"
+  EngineTheory: "./books/engine_theory.bin"
