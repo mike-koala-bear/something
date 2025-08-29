@@ -229,6 +229,14 @@ class Lichess_Game:
             self.gaviota_tablebase.close()
 
     def _offer_draw(self, move_response: Move_Response) -> bool:
+        is_0_5_0_game = self.game_info.tc_str == '0.5+0'
+        
+        if is_0_5_0_game:
+            is_tournament_game = self.game_info.tournament_id is not None
+            allow_in_tournaments = self.config.offer_draw.allow_in_tournaments
+            if not (is_tournament_game and allow_in_tournaments):
+                return False
+
         if not self.config.offer_draw.enabled:
             return False
 
@@ -261,6 +269,10 @@ class Lichess_Game:
         return True
 
     def _resign(self, move_response: Move_Response) -> bool:
+        is_0_5_0_game = self.game_info.tc_str == '0.5+0'
+        if is_0_5_0_game:
+            return False
+
         if not self.config.resign.enabled:
             return False
 
@@ -333,19 +345,34 @@ class Lichess_Game:
             return Book_Settings()
 
         books_config = self.config.opening_books.books[key]
+        
+        if books_config.random_selection and books_config.names:
+            try:
+                selected_book_name, selected_book_path = random.choice(list(books_config.names.items()))
+                print(f"Randomly selected book: {selected_book_name} for key: {key}")
+                book_readers = {selected_book_name: chess.polyglot.open_reader(selected_book_path)}
+            except Exception as e:
+                print(f"Error selecting random book for key {key}: {e}")
+                book_readers = {name: chess.polyglot.open_reader(path)
+                               for name, path in books_config.names.items()}
+        else:
+            book_readers = {name: chess.polyglot.open_reader(path)
+                               for name, path in books_config.names.items()}
+        
         return Book_Settings(books_config.selection,
                              books_config.max_depth,
-                             {name: chess.polyglot.open_reader(path)
-                              for name, path in books_config.names.items()})
+                             book_readers)
 
     def _get_book_key(self) -> str | None:
         suffixes: list[str] = []
-        if self.game_info.white_title != 'BOT' or self.game_info.black_title != 'BOT':
+        if self.game_info.white_title == 'BOT' and self.game_info.black_title == 'BOT':
+            suffixes.append('bot')
+        elif self.game_info.white_title != 'BOT' or self.game_info.black_title != 'BOT':
             suffixes.append('human')
         if self.game_info.tournament_id is not None:
             suffixes.append('tournament')
         suffixes.append('white' if self.is_white else 'black')
-
+        
         def check_book_key(base_name: str) -> str | None:
             for i in range(len(suffixes), -1, -1):
                 for p in itertools.permutations(suffixes, i):
@@ -357,21 +384,25 @@ class Lichess_Game:
             for alias in map(str.lower, self.board.aliases):
                 if key := check_book_key(alias):
                     return key
-
             return
 
         if self.board.chess960:
             if key := check_book_key('chess960'):
                 return key
-
         else:
+            if 'human' in suffixes:
+                if key := check_book_key(f"{self.game_info.tc_str}_human"):
+                    return key
+                if key := check_book_key(f"{self.game_info.speed}_human"):
+                    return key
+                if key := check_book_key('standard_human'):
+                    return key
+
             if key := check_book_key(self.game_info.tc_str):
                 return key
-
             if key := check_book_key(self.game_info.speed):
                 return key
-
-        return check_book_key('standard')
+            return check_book_key('standard')
 
     async def _make_opening_explorer_move(self) -> Move_Response | None:
         out_of_book = self.out_of_opening_explorer_counter >= 5
@@ -816,7 +847,7 @@ class Lichess_Game:
         nps = f'NPS: {self._format_number(info_nps)}' if info_nps else 12 * ' '
 
         if info_time := info.get('time'):
-            minutes, seconds = divmod(round(info_time, 1), 60)
+            minutes, seconds = divmod(info_time, 60)
             time_str = f'MT: {minutes:02.0f}:{seconds:004.1f}'
         else:
             time_str = 11 * ' '
@@ -831,16 +862,17 @@ class Lichess_Game:
         return delimiter.join((score, depth, nodes, nps, time_str, hashfull, tbhits))
 
     def _format_number(self, number: int) -> str:
-        units: list[tuple[str, int, int]] = [
-            ('T', 1_000_000_000_000, 999_950_000_000),
-            ('G', 1_000_000_000, 999_950_000),
-            ('M', 1_000_000, 999_950),
-            ('k', 1_000, 1_000)
-        ]
+        if number >= 1_000_000_000_000:
+            return f'{number / 1_000_000_000_000:5.1f} T'
 
-        for suffix, value, threshold in units:
-            if number >= threshold:
-                return f'{number / value:5.1f} {suffix}'
+        if number >= 1_000_000_000:
+            return f'{number / 1_000_000_000:5.1f} G'
+
+        if number >= 1_000_000:
+            return f'{number / 1_000_000:5.1f} M'
+
+        if number >= 1_000:
+            return f'{number / 1_000:5.1f} k'
 
         return f'{number:5}  '
 
