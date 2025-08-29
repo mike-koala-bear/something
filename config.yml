@@ -156,7 +156,7 @@ resign:
   against_humans: false
 
 matchmaking:
-  delay: 60                               # Time in seconds the bot must be idle before a new challenge is started.
+  delay: 60 # Time in seconds the bot must be idle before a new challenge is started.
   allow_matchmaking: true
   challenge_mode: rated
   timeout: 30
@@ -164,7 +164,7 @@ matchmaking:
   types:
     bullet_0_5:
       enabled: true
-      tc: "0.5+0"      
+      tc: "0.5+0"
       variant: standard
     blitz_3_0:
       enabled: true
@@ -189,7 +189,7 @@ matchmaking:
     kingOfTheHill:
       enabled: true
       tc: "0.5+0"
-      variant: kingOfTheHill     
+      variant: kingOfTheHill
     atomic:
       enabled: true
       tc: "1+0"
@@ -200,22 +200,20 @@ matchmaking:
       variant: racingKings
     antichess:
       enabled: true
-      tc: "1+0" 
-      variant: antichess 
+      tc: "1+0"
+      variant: antichess
     horde:
       enabled: true
-      tc: "1+0" 
+      tc: "1+0"
       variant: horde
 
-matchmaking:
-  delay: 10
-  timeout: 30
-  selection: sequential
-  types:
-    hyper: { tc: 0.5+0 }
-  optional_settings:
-    rated: false
-    variant: standard
+challenge: # Incoming challenges.
+  concurrency: 2 # Number of games to play simultaneously.
+  max_takebacks: 3 # Maximum number of takebacks granted to a human. # Whether bullet games against BOTs should only be accepted with increment.
+# min_increment: 0                        # Minimum amount of increment to accept a challenge.
+# max_increment: 180                      # Maximum amount of increment to accept a challenge.
+# min_initial: 0                          # Minimum amount of initial time to accept a challenge.
+# max_initial: 315360000
 
 messages:
   greeting: "Hey! I'm TacticalBot running on {engine}. Good luck!"
