@@ -7,7 +7,7 @@ engines:
     path: "./engines/sf" # set to your arm64 binary
     ponder: true
     silence_stderr: false
-    move_overhead_multiplier: 19.5
+    move_overhead_multiplier: 23.5
     uci_options:
       Threads: 4
       Hash: 516
@@ -29,6 +29,18 @@ engines:
       UCI_ShowWDL: true
       Move Overhead: 100
     limits: {}
+
+  chess960: # Engine used for standard chess and when no suitable special engine is configured.
+    dir: "./engines" # Directory containing the engine.
+    name: "sf" # Binary name of the engine to use.
+    ponder: true # Think on opponent's time.
+    silence_stderr: false # Suppresses stderr output.
+    move_overhead_multiplier: 20.0 # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
+    uci_options: # Arbitrary UCI options passed to the engine.
+      Threads: 4 # Max CPU threads the engine can use.
+      Hash: 516 # Max memory (in megabytes) the engine can allocate.
+      Move Overhead: 100 # Increase if your bot flags games too often.
+    limits:
 
   variants: # Engine used for variants when no suitable special engine is configured.
     dir: "./engines" # Directory containing the engine.
@@ -143,21 +155,57 @@ resign:
   consecutive_moves: 8 # More moves to confirm truly lost position.
   against_humans: false
 
-challenge:
-  concurrency: 2
-  max_takebacks: 0
-  bullet_with_increment_only: false
-  variants:
-    - standard
-  time_controls:
-    - bullet
-    - blitz
-  bot_modes:
-    - rated
-    - casual
-  human_modes:
-    - rated
-    - casual
+matchmaking:
+  delay: 60                               # Time in seconds the bot must be idle before a new challenge is started.
+  allow_matchmaking: true
+  challenge_mode: rated
+  timeout: 30
+  selection: weighted_random
+  types:
+    bullet_0_5:
+      enabled: true
+      tc: "0.5+0"      
+      variant: standard
+    blitz_3_0:
+      enabled: true
+      tc: "3+0"
+      variant: standard
+    rapid_8+0:
+      enabled: true
+      tc: "8+0"
+      variant: standard
+    0.5_chess960:
+      enabled: true
+      tc: "0.5+0"
+      variant: chess960
+    crazyhouse:
+      enabled: true
+      tc: "1+0"
+      variant: crazyhouse
+    threeCheck:
+      enabled: true
+      tc: "1+0"
+      variant: threeCheck
+    kingOfTheHill:
+      enabled: true
+      tc: "0.5+0"
+      variant: kingOfTheHill     
+    atomic:
+      enabled: true
+      tc: "1+0"
+      variant: atomic
+    racingKings:
+      enabled: true
+      tc: "3+0"
+      variant: racingKings
+    antichess:
+      enabled: true
+      tc: "1+0" 
+      variant: antichess 
+    horde:
+      enabled: true
+      tc: "1+0" 
+      variant: horde
 
 matchmaking:
   delay: 10
