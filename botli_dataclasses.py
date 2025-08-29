@@ -185,11 +185,11 @@ class Game_Information:
         if initial_time_min.is_integer():
             initial_time_str = str(int(initial_time_min))
         elif initial_time_min == 0.25:
-            initial_time_str = '¼'
+            initial_time_str = '1/4'
         elif initial_time_min == 0.5:
-            initial_time_str = '½'
+            initial_time_str = '1/2'
         elif initial_time_min == 0.75:
-            initial_time_str = '¾'
+            initial_time_str = '3/4'
         else:
             initial_time_str = str(initial_time_min)
         increment_sec = self.increment_ms // 1000
@@ -276,11 +276,11 @@ class Matchmaking_Type:
         if initial_time_min.is_integer():
             initial_time_str = str(int(initial_time_min))
         elif initial_time_min == 0.25:
-            initial_time_str = '¼'
+            initial_time_str = '1/4'
         elif initial_time_min == 0.5:
-            initial_time_str = '½'
+            initial_time_str = '1/2'
         elif initial_time_min == 0.75:
-            initial_time_str = '¾'
+            initial_time_str = '3/4'
         else:
             initial_time_str = str(initial_time_min)
         tc_str = f'TC: {initial_time_str}+{self.increment}'

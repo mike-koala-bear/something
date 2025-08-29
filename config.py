@@ -10,7 +10,7 @@ import yaml
 from configs import (Books_Config, Challenge_Config, ChessDB_Config, Engine_Config, Gaviota_Config,
                      Lichess_Cloud_Config, Limit_Config, Matchmaking_Config, Matchmaking_Type_Config, Messages_Config,
                      Offer_Draw_Config, Online_EGTB_Config, Online_Moves_Config, Opening_Books_Config,
-                     Opening_Explorer_Config, Resign_Config, Syzygy_Config)
+                     Opening_Explorer_Config, Rematch_Config, Resign_Config, Syzygy_Config)
 
 
 @dataclass
@@ -26,7 +26,9 @@ class Config:
     resign: Resign_Config
     challenge: Challenge_Config
     matchmaking: Matchmaking_Config
+    rematch: Rematch_Config
     messages: Messages_Config
+
     whitelist: list[str]
     blacklist: list[str]
     version: str
@@ -40,7 +42,7 @@ class Config:
                 print(f'There appears to be a syntax problem with your {yaml_path}', file=sys.stderr)
                 raise e
 
-        if not yaml_config.get('token') and 'LICHESS_BOT_TOKEN' in os.environ:
+        if 'token' not in yaml_config and 'LICHESS_BOT_TOKEN' in os.environ:
             yaml_config['token'] = os.environ['LICHESS_BOT_TOKEN']
 
         cls._check_sections(yaml_config)
@@ -54,7 +56,9 @@ class Config:
         resign_config = cls._get_resign_config(yaml_config['resign'])
         challenge_config = cls._get_challenge_config(yaml_config['challenge'])
         matchmaking_config = cls._get_matchmaking_config(yaml_config['matchmaking'])
+        rematch_config = cls._get_rematch_config(yaml_config.get('rematch', {}))
         messages_config = cls._get_messages_config(yaml_config['messages'] or {})
+
         whitelist = [username.lower() for username in yaml_config.get('whitelist') or []]
         blacklist = [username.lower() for username in yaml_config.get('blacklist') or []]
 
@@ -69,7 +73,9 @@ class Config:
                    resign_config,
                    challenge_config,
                    matchmaking_config,
+                   rematch_config,
                    messages_config,
+
                    whitelist,
                    blacklist,
                    cls._get_version())
@@ -241,7 +247,7 @@ class Config:
 
                 names[book_name] = config['books'][book_name]
 
-            books[section] = Books_Config(settings['selection'], settings.get('max_depth'), names)
+            books[section] = Books_Config(settings['selection'], settings.get('max_depth'), names, settings.get('random_selection', False))
 
         return Opening_Books_Config(config['opening_books']['enabled'],
                                     config['opening_books']['priority'],
@@ -404,7 +410,9 @@ class Config:
                                  offer_draw_section['consecutive_moves'],
                                  offer_draw_section['min_game_length'],
                                  offer_draw_section['against_humans'],
-                                 offer_draw_section.get('min_rating'))
+                                 offer_draw_section.get('min_rating'),
+                                 offer_draw_section.get('allow_in_tournaments', False),
+                                 offer_draw_section.get('accept_30_second_draws', False))
 
     @staticmethod
     def _get_resign_config(resign_section: dict[str, Any]) -> Resign_Config:
@@ -455,7 +463,10 @@ class Config:
                                 challenge_section['variants'],
                                 challenge_section['time_controls'] or [],
                                 challenge_section['bot_modes'] or [],
-                                challenge_section['human_modes'] or [])
+                                challenge_section['human_modes'] or [],
+                                challenge_section.get('min_rating_diff'),
+                                challenge_section.get('max_rating_diff'),
+                                challenge_section.get('variant_rating_diffs'))
 
     @staticmethod
     def _get_matchmaking_config(matchmaking_section: dict[str, Any]) -> Matchmaking_Config:
@@ -497,6 +508,55 @@ class Config:
                                   matchmaking_section['timeout'],
                                   matchmaking_section['selection'],
                                   types)
+
+    @staticmethod
+    def _get_rematch_config(rematch_section: dict[str, Any]) -> Rematch_Config:
+        # Default values for rematch configuration
+        default_config = {
+            'enabled': False,
+            'max_consecutive': 3,
+            'min_rating_diff': None,
+            'max_rating_diff': None,
+            'offer_on_win': True,
+            'offer_on_loss': True,
+            'offer_on_draw': True,
+            'against_humans': True,
+            'against_bots': True,
+            'delay_seconds': 3,
+            'timeout_seconds': 30
+        }
+
+        # If rematch section is empty, return default config
+        if not rematch_section:
+            return Rematch_Config(**default_config)
+
+        rematch_sections = [
+            ['enabled', bool, '"enabled" must be a bool.'],
+            ['max_consecutive', int, '"max_consecutive" must be an integer.'],
+            ['offer_on_win', bool, '"offer_on_win" must be a bool.'],
+            ['offer_on_loss', bool, '"offer_on_loss" must be a bool.'],
+            ['offer_on_draw', bool, '"offer_on_draw" must be a bool.'],
+            ['against_humans', bool, '"against_humans" must be a bool.'],
+            ['against_bots', bool, '"against_bots" must be a bool.'],
+            ['delay_seconds', int, '"delay_seconds" must be an integer.'],
+            ['timeout_seconds', int, '"timeout_seconds" must be an integer.']]
+
+        for subsection in rematch_sections:
+            if subsection[0] in rematch_section:
+                if not isinstance(rematch_section[subsection[0]], subsection[1]):
+                    raise TypeError(f'`rematch` subsection {subsection[2]}')
+
+        return Rematch_Config(rematch_section.get('enabled', default_config['enabled']),
+                              rematch_section.get('max_consecutive', default_config['max_consecutive']),
+                              rematch_section.get('min_rating_diff', default_config['min_rating_diff']),
+                              rematch_section.get('max_rating_diff', default_config['max_rating_diff']),
+                              rematch_section.get('offer_on_win', default_config['offer_on_win']),
+                              rematch_section.get('offer_on_loss', default_config['offer_on_loss']),
+                              rematch_section.get('offer_on_draw', default_config['offer_on_draw']),
+                              rematch_section.get('against_humans', default_config['against_humans']),
+                              rematch_section.get('against_bots', default_config['against_bots']),
+                              rematch_section.get('delay_seconds', default_config['delay_seconds']),
+                              rematch_section.get('timeout_seconds', default_config['timeout_seconds']))
 
     @staticmethod
     def _get_messages_config(messages_section: dict[str, str]) -> Messages_Config:

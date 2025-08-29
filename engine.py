@@ -1,3 +1,4 @@
+
 import asyncio
 import os
 import subprocess
@@ -101,6 +102,15 @@ class Engine:
         if not result.move:
             raise RuntimeError('Engine could not make a move!')
 
+        return result.move, result.info
+
+    async def make_hint_move(self, board: chess.Board) -> tuple[chess.Move, chess.engine.InfoDict]:
+        limit = chess.engine.Limit(time=1.0, depth=10)
+        result = await self.engine.play(board, limit, info=chess.engine.INFO_ALL)
+        
+        if not result.move:
+            raise RuntimeError('Engine could not make a move!')
+        
         return result.move, result.info
 
     async def start_pondering(self, board: chess.Board) -> None:

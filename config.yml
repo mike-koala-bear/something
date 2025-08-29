@@ -95,6 +95,8 @@ offer_draw:
   consecutive_moves: 5 # More moves required before considering draw.
   min_game_length: 30 # Later draw offers to avoid early draws.
   against_humans: false # Activate whether these settings should apply against humans.
+  allow_in_tournaments: true # Allow offering draws in tournaments even for 0.5+0 games. By default, draws are never offered in 0.5+0 games.
+  accept_30_second_draws: false
 
 resign:
   enabled: false # Enable resignation to avoid hopeless positions.

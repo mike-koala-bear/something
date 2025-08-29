@@ -14,6 +14,9 @@ class Challenge_Validator:
         self.max_increment = 180 if config.challenge.max_increment is None else config.challenge.max_increment
         self.min_initial = 0 if config.challenge.min_initial is None else config.challenge.min_initial
         self.max_initial = 315360000 if config.challenge.max_initial is None else config.challenge.max_initial
+        self.min_rating_diff = config.challenge.min_rating_diff if config.challenge.min_rating_diff is not None else 0
+        self.max_rating_diff = config.challenge.max_rating_diff if config.challenge.max_rating_diff is not None else 10000
+        self.variant_rating_diffs = config.challenge.variant_rating_diffs if config.challenge.variant_rating_diffs is not None else {}
 
     def get_decline_reason(self, challenge_event: dict[str, Any]) -> Decline_Reason | None:
         speed: str = challenge_event['speed']
@@ -95,6 +98,32 @@ class Challenge_Validator:
         if is_casual and 'casual' not in modes:
             print('Casual is not allowed according to config.')
             return Decline_Reason.RATED
+
+        if is_bot:
+            challenger_rating = challenge_event['challenger'].get('rating', 0)
+            our_rating = challenge_event.get('destUser', {}).get('rating', 0)
+            rating_diff = abs(our_rating - challenger_rating)
+            
+            if is_casual:
+                return
+            
+            variant_min_rating_diff = self.config.challenge.min_rating_diff
+            variant_max_rating_diff = self.config.challenge.max_rating_diff
+            
+            if variant in self.variant_rating_diffs:
+                variant_settings = self.variant_rating_diffs[variant]
+                if 'min' in variant_settings and variant_settings['min'] is not None:
+                    variant_min_rating_diff = variant_settings['min']
+                if 'max' in variant_settings and variant_settings['max'] is not None:
+                    variant_max_rating_diff = variant_settings['max']
+
+            if variant_min_rating_diff is not None and rating_diff < variant_min_rating_diff:
+                print(f'Rating difference {rating_diff} is less than minimum {variant_min_rating_diff} for {variant} bot challenges.')
+                return Decline_Reason.GENERIC
+            
+            if variant_max_rating_diff is not None and rating_diff > variant_max_rating_diff:
+                print(f'Rating difference {rating_diff} is greater than maximum {variant_max_rating_diff} for {variant} bot challenges.')
+                return Decline_Reason.GENERIC
 
     def _get_time_controls(self, speeds: list[str]) -> list[tuple[int, int]]:
         time_controls: list[tuple[int, int]] = []

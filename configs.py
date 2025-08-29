@@ -39,6 +39,7 @@ class Books_Config:
     selection: Literal['weighted_random', 'uniform_random', 'best_move']
     max_depth: int | None
     names: dict[str, str]
+    random_selection: bool = False
 
 
 @dataclass
@@ -115,6 +116,8 @@ class Offer_Draw_Config:
     min_game_length: int
     against_humans: bool
     min_rating: int | None
+    allow_in_tournaments: bool = False
+    accept_30_second_draws: bool = False
 
 
 @dataclass
@@ -139,6 +142,9 @@ class Challenge_Config:
     time_controls: list[str]
     bot_modes: list[str]
     human_modes: list[str]
+    min_rating_diff: int | None
+    max_rating_diff: int | None
+    variant_rating_diffs: dict[str, dict[str, int | None]] | None
 
 
 @dataclass
@@ -159,6 +165,24 @@ class Matchmaking_Config:
     timeout: int
     selection: Literal['weighted_random', 'sequential']
     types: dict[str, Matchmaking_Type_Config]
+
+
+
+
+
+@dataclass
+class Rematch_Config:
+    enabled: bool
+    max_consecutive: int
+    min_rating_diff: int | None
+    max_rating_diff: int | None
+    offer_on_win: bool
+    offer_on_loss: bool
+    offer_on_draw: bool
+    against_humans: bool
+    against_bots: bool
+    delay_seconds: int
+    timeout_seconds: int
 
 
 @dataclass
