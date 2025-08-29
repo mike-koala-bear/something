@@ -41,6 +41,12 @@ jobs:
           mv engines/stockfish_* engines/sf
           chmod +x engines/sf
 
+      - name: Setup engines permissions
+        run: |
+          if [ -f "engines/fairy-stockfish" ]; then
+            chmod +x engines/fairy-stockfish
+          fi
+
       - name: Setup token
         run: |
           python3 << 'EOF'
@@ -61,4 +67,4 @@ jobs:
         timeout-minutes: 340
         run: |
           echo "🤖 Starting bot..."
-          python3 user_interface.py -u matchmaking "tournament 3a8XhaBL"
+          python3 user_interface.py -u "matchmaking"
