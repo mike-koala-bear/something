@@ -9,7 +9,7 @@ engines:
     silence_stderr: false
     move_overhead_multiplier: 19.5
     uci_options:
-      Threads: 4
+      Threads: 6
       Hash: 5120
       UCI_ShowWDL: true
       Move Overhead: 100
@@ -26,7 +26,7 @@ engines:
     move_overhead_multiplier: 1.0
     auto_tune: true
     uci_options:
-      Threads: 4 # Maximum Threadripper power for longer games.
+      Threads: 6 # Maximum Threadripper power for longer games.
       Hash: 4096 # Massive hash for deep calculation.
       UCI_ShowWDL: true
       Move Overhead: 100
@@ -105,7 +105,7 @@ resign:
   against_humans: false
 
 challenge:
-  concurrency: 1
+  concurrency: 2
   max_takebacks: 0
   bullet_with_increment_only: false
   variants:
