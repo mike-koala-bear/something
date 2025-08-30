@@ -137,7 +137,6 @@ dmypy.json
 # === Engine binaries ===
 engines/lc0
 engines/lc0-v0.32.0-macos_12.6.1
-engines/sf
 !engines/.gitkeep
 
 # === Neural networks (NNUE) ===
