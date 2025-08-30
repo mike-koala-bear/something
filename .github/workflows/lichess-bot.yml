@@ -1,49 +1,24 @@
 name: Lichess Bot
 
 on:
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: "Bot Mode"
-        type: choice
-        required: true
-        options:
-          - normal
-          - matchmaking
-          - tournament
-      tournament_id:
-        description: "Tournament ID (if tournament mode)"
-        type: string
-        required: false
-      team_id:
-        description: "Team ID (optional)"
-        type: string
-        required: false
-  schedule:
-    - cron: "0 */6 * * *" # Run every 6 hours
   push:
-    branches: [main]
-    paths:
-      - "**.py"
-      - "config.yml"
+    branches: [main, master]
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
-permissions:
-  actions: write
-  contents: write
+env:
+  LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
 
 jobs:
-  bot-runner:
+  deploy-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 hours
+    timeout-minutes: 350
 
+    # Removed matrix strategy to run single instance
     steps:
-      - name: Auto-cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          access_token: ${{ github.token }}
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -51,39 +26,48 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
+          pip install -r requirements.txt
+          pip install tenacity  # Adding missing dependency
 
-      - name: Setup Engine
+      # - name: Download latest Stockfish dev
+      #   run: |
+      #     mkdir -p engines
+      #     sudo apt-get update && sudo apt-get install -y unzip
+      #     curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
+      #     unzip -o stockfish.zip -d engines/
+      #     mv engines/stockfish_* engines/sf
+      #     chmod +x engines/sf
+
+      - name: Setup engines permissions
         run: |
-          chmod +x ./engines/stockfish-ubuntu-x86-64-avx2
-          chmod +x ./engines/fairy-stockfish-largeboard_x86-64 || true
-
-      - name: Configure Bot Token
-        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_KEY }}/g" config.yml
-
-      - name: Launch Bot
-        run: |
-          # Build command based on mode
-          CMD="python3 -u user_interface.py"
-
-          case "${{ github.event.inputs.mode }}" in
-            "matchmaking")
-              CMD="$CMD matchmaking"
-              ;;
-            "tournament")
-              if [[ -n "${{ github.event.inputs.tournament_id }}" ]]; then
-                CMD="$CMD --tournament ${{ github.event.inputs.tournament_id }}"
-              fi
-              ;;
-          esac
-
-          # Add team ID if provided
-          if [[ -n "${{ github.event.inputs.team_id }}" ]]; then
-            CMD="$CMD --team ${{ github.event.inputs.team_id }}"
+          if [ -f "engines/fairy-stockfish-largeboard_x86-64" ]; then
+            chmod +x engines/fairy-stockfish-largeboard_x86-64
+          fi
+          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then
+            chmod +x engines/stockfish-ubuntu-x86-64-avx2
           fi
 
-          echo "Running command: $CMD"
-          eval "$CMD"
+      - name: Setup token
+        run: |
+          python3 << 'EOF'
+          import yaml
+          try:
+              with open('config.yml', 'r') as f:
+                  config = yaml.safe_load(f) or {}
+              config['token'] = "${{ secrets.LICHESS_KEY }}"
+              with open('config.yml', 'w') as f:
+                  yaml.dump(config, f, default_flow_style=False)
+              print("✅ Token configuration successful")
+          except Exception as e:
+              print(f"❌ Error: {e}")
+              exit(1)
+          EOF
+
+      - name: Launch bot
+        timeout-minutes: 340
+        run: |
+          echo "🤖 Starting bot..."
+          python3 user_interface.py -u "tournament F2Flw2sl"
