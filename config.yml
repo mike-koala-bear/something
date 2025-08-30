@@ -21,11 +21,11 @@ engines:
     path: "./engines/stockfish-ubuntu-x86-64-avx2"
     ponder: true
     silence_stderr: true
-    move_overhead_multiplier: 10.0
+    move_overhead_multiplier: 21.0
     auto_tune: true
     uci_options:
-      Threads: 2 # Max cores on GitHub Actions
-      Hash: 2048 # 2 GB for deeper tactical calculation
+      Threads: 4 # Max cores on GitHub Actions
+      Hash: 1024 # 1 GB for deeper tactical calculation
       UCI_ShowWDL: true
       Ponder: true # Calculates during opponent’s turn
       Move Overhead: 100 # Minimal overhead → fastest moves
