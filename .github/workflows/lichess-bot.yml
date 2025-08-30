@@ -59,7 +59,7 @@ jobs:
       - name: Setup Engine
         run: |
           chmod +x ./engines/stockfish-ubuntu-x86-64-avx2
-          chmod +x ./engines/fairy-stockfish || true
+          chmod +x ./engines/fairy-stockfish-largeboard_x86-64 || true
 
       - name: Configure Bot Token
         run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_KEY }}/g" config.yml
