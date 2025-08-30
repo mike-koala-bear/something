@@ -62,7 +62,7 @@ jobs:
           chmod +x ./engines/fairy-stockfish || true
 
       - name: Configure Bot Token
-        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_KEY }}/g" config.yml
 
       - name: Launch Bot
         run: |
