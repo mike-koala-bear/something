@@ -75,13 +75,13 @@ jobs:
 
       - name: Inject Lichess Bot Token
         env:
-          LILICHESS_KEYCHESS_TOKEN: ${{ secrets.LICHESS_KEY }}
+          LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           python3 << 'EOF'
           import os, yaml
-          token = os.environ.get("LICHESS_KEY")
+          token = os.environ.get("LICHESS_TOKEN")
           if not token:
-              print("ERROR: LICHESS_KEY secret is missing!")
+              print("ERROR: LICHESS_TOKEN secret is missing!")
               exit(1)
           with open("config.yml","r") as f:
               config = yaml.safe_load(f) or {}
