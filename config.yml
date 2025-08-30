@@ -24,15 +24,15 @@ engines:
     move_overhead_multiplier: 1.0
     auto_tune: true
     uci_options:
-      Threads: 2 # GitHub Actions default cores
-      Hash: 1536 # 1.5 GB for deep tactical lines
+      Threads: 2 # Max cores on GitHub Actions
+      Hash: 2048 # 2 GB for deeper tactical calculation
       UCI_ShowWDL: true
-      Ponder: true
-      Move Overhead: 80 # Avoid flagging but allow calculation
-      Contempt: 0 # Objective play
-      MultiPV: 1 # Only best move
-      Skill Level: 20 # Max strength
-    limits: {}
+      Ponder: true # Calculates during opponent’s turn
+      Move Overhead: 30 # Minimal overhead → fastest moves
+      Contempt: 20 # Aggressive play; avoids draws where possible
+      MultiPV: 1 # Focus on best move
+      Skill Level: 20 # Max engine strength
+    limits:
 
   chess960: # Engine used for standard chess and when no suitable special engine is configured.
     dir: "./engines" # Directory containing the engine.
