@@ -1,4 +1,4 @@
-token: "lip_Lm1j499oMO6H9SuBmBEC"
+token: "token XXXXX"
 
 engines:
   bullet:
@@ -7,10 +7,10 @@ engines:
     path: "./engines/sf" # set to your arm64 binary
     ponder: true
     silence_stderr: false
-    move_overhead_multiplier: 23.5
+    move_overhead_multiplier: 21.0
     uci_options:
       Threads: 4
-      Hash: 516
+      Hash: 1024
       UCI_ShowWDL: true
       Move Overhead: 100
     limits: {}
@@ -50,7 +50,7 @@ engines:
     move_overhead_multiplier: 1.0 # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
     uci_options: # Arbitrary UCI options passed to the engine.
       Threads: 4 # Max CPU threads the engine can use.
-      Hash: 256 # Max memory (in megabytes) the engine can allocate.
+      Hash: 1024 # Max memory (in megabytes) the engine can allocate.
       Move Overhead: 100 # Increase if your bot flags games too often.
       Use NNUE: true
       EvalFile: "3check-cb5f517c228b.nnue:antichess-dd3cbe53cd4e.nnue:atomic-2cf13ff256cc.nnue:crazyhouse-8ebf84784ad2.nnue:horde-28173ddccabe.nnue:kingofthehill-978b86d0e6a4.nnue:racingkings-636b95f085e3.nnue"
@@ -71,20 +71,25 @@ syzygy:
     paths:
       - "./syzygy"
     max_pieces: 5
-    probe_depth: 1
     instant_play: true
-  # antichess:
-  #   enabled: false # Activate local syzygy endgame tablebases.
-  #   paths: # Paths to local syzygy endgame tablebases.
-  #     - "./antichess-syzygy"
-  #   max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
-  #   instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
-  # atomic:
-  #   enabled: false # Activate local syzygy endgame tablebases.
-  #   paths: # Paths to local syzygy endgame tablebases.
-  #     - "./atomic-syzygy"
-  #   max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
-  #   instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
+  chess960:
+    enabled: true # Activate local syzygy endgame tablebases.
+    paths: # Paths to local syzygy endgame tablebases.
+      - "./syzygy"
+    max_pieces: 5 # Count of max pieces in the local syzygy endgame tablebases.
+    instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
+  antichess:
+    enabled: false # Activate local syzygy endgame tablebases.
+    paths: # Paths to local syzygy endgame tablebases.
+      - "./antichess-syzygy"
+    max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
+    instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
+  atomic:
+    enabled: false # Activate local syzygy endgame tablebases.
+    paths: # Paths to local syzygy endgame tablebases.
+      - "./atomic-syzygy"
+    max_pieces: 6 # Count of max pieces in the local syzygy endgame tablebases.
+    instant_play: true # Whether the bot should play directly from syzygy without engine if possible.
 
 opening_books:
   enabled: true
@@ -208,8 +213,9 @@ matchmaking:
       variant: horde
 
 challenge: # Incoming challenges.
-  concurrency: 2 # Number of games to play simultaneously.
+  concurrency: 1 # Number of games to play simultaneously.
   max_takebacks: 3 # Maximum number of takebacks granted to a human.
+  bullet_with_increment_only: false
   # min_increment: 0                        # Minimum amount of increment to accept a challenge.
   # max_increment: 180                      # Maximum amount of increment to accept a challenge.
   # min_initial: 0                          # Minimum amount of initial time to accept a challenge.
@@ -239,9 +245,9 @@ challenge: # Incoming challenges.
     - rated # Rated games
 
 messages:
-  greeting: "Hey! I'm TacticalBot running on {engine}. Good luck!"
+  greeting: "Hey! I'm TacticalBot. Good luck!"
   goodbye: "Good game!"
-  greeting_spectators: "Hey! I'm TacticalBot running on {engine}."
+  greeting_spectators: "Hey! I'm TacticalBot."
   goodbye_spectators: "Thanks for watching!"
 
 whitelist: []
