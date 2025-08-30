@@ -21,17 +21,14 @@ engines:
     path: "./engines/stockfish-ubuntu-x86-64-avx2"
     ponder: true
     silence_stderr: true
-    move_overhead_multiplier: 1.0
+    move_overhead_multiplier: 10.0
     auto_tune: true
     uci_options:
       Threads: 2 # Max cores on GitHub Actions
       Hash: 2048 # 2 GB for deeper tactical calculation
       UCI_ShowWDL: true
       Ponder: true # Calculates during opponent’s turn
-      Move Overhead: 30 # Minimal overhead → fastest moves
-      Contempt: 20 # Aggressive play; avoids draws where possible
-      MultiPV: 1 # Focus on best move
-      Skill Level: 20 # Max engine strength
+      Move Overhead: 100 # Minimal overhead → fastest moves
     limits:
 
   chess960: # Engine used for standard chess and when no suitable special engine is configured.
