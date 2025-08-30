@@ -150,7 +150,7 @@ offer_draw:
   accept_30_second_draws: false
 
 resign:
-  enabled: false # Enable resignation to avoid hopeless positions.
+  enabled: true # Enable resignation to avoid hopeless positions.
   score: -800 # Resign when clearly losing (8 pawns down).
   consecutive_moves: 8 # More moves to confirm truly lost position.
   against_humans: false
