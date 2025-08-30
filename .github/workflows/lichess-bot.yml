@@ -1,23 +1,51 @@
-name: Lichess Bot
+name: Lichess Bot Runner
+
+concurrency:
+  group: lichess-bot-runner
+  cancel-in-progress: true
 
 on:
-  push:
-    branches: [main, master]
-  schedule:
-    - cron: "0 */6 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Bot Mode"
+        type: choice
+        required: true
+        options:
+          - normal
+          - matchmaking
+          - tournament
+      tournament_id:
+        description: "Tournament ID (if tournament mode)"
+        type: string
+        required: false
+      team_id:
+        description: "Team ID (optional)"
+        type: string
+        required: false
+      password:
+        description: "Tournament password (optional)"
+        type: string
+        required: false
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "config.yml"
 
-env:
-  LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
+permissions:
+  actions: write
+  contents: write
 
 jobs:
-  deploy-bot:
+  bot-runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 355 # restart just before GitHub limit
 
-    # Removed matrix strategy to run single instance
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v5
 
       - name: Setup Python
@@ -26,48 +54,78 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install tenacity  # Adding missing dependency
+          pip install tenacity pyyaml
 
-      # - name: Download latest Stockfish dev
-      #   run: |
-      #     mkdir -p engines
-      #     sudo apt-get update && sudo apt-get install -y unzip
-      #     curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
-      #     unzip -o stockfish.zip -d engines/
-      #     mv engines/stockfish_* engines/sf
-      #     chmod +x engines/sf
-
-      - name: Setup engines permissions
+      - name: Setup Engines
         run: |
-          if [ -f "engines/fairy-stockfish-largeboard_x86-64" ]; then
-            chmod +x engines/fairy-stockfish-largeboard_x86-64
-          fi
-          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then
-            chmod +x engines/stockfish-ubuntu-x86-64-avx2
-          fi
+          mkdir -p engines
+          sudo apt-get update && sudo apt-get install -y unzip
+          # Stockfish
+          curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
+          unzip -o stockfish.zip -d engines/
+          mv engines/stockfish_* engines/stockfish
+          chmod +x engines/stockfish
+          # Other engines
+          if [ -f "engines/fairy-stockfish-largeboard_x86-64" ]; then chmod +x engines/fairy-stockfish-largeboard_x86-64; fi
+          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then chmod +x engines/stockfish-ubuntu-x86-64-avx2; fi
 
-      - name: Setup token
+      - name: Inject Lichess Bot Token
+        env:
+          LILICHESS_KEYCHESS_TOKEN: ${{ secrets.LICHESS_KEY }}
         run: |
           python3 << 'EOF'
-          import yaml
-          try:
-              with open('config.yml', 'r') as f:
-                  config = yaml.safe_load(f) or {}
-              config['token'] = "${{ secrets.LICHESS_KEY }}"
-              with open('config.yml', 'w') as f:
-                  yaml.dump(config, f, default_flow_style=False)
-              print("✅ Token configuration successful")
-          except Exception as e:
-              print(f"❌ Error: {e}")
+          import os, yaml
+          token = os.environ.get("LICHESS_KEY")
+          if not token:
+              print("ERROR: LICHESS_KEY secret is missing!")
               exit(1)
+          with open("config.yml","r") as f:
+              config = yaml.safe_load(f) or {}
+          config["token"] = token
+          with open("config.yml","w") as f:
+              yaml.dump(config,f, default_flow_style=False)
+          print("✅ Token injected successfully")
           EOF
 
-      - name: Launch bot
-        timeout-minutes: 340
+      - name: Launch Bot
         run: |
-          echo "🤖 Starting bot..."
-          python3 user_interface.py -u "tournament F2Flw2sl"
+          CMD_BASE="python3 -u user_interface.py"
+          MODE="${{ github.event.inputs.mode }}"
+          TOUR_ID="${{ github.event.inputs.tournament_id }}"
+          TEAM_ID="${{ github.event.inputs.team_id }}"
+          PASSWORD="${{ github.event.inputs.password }}"
+
+          if [[ "$MODE" == "matchmaking" ]]; then
+              CMD="$CMD_BASE matchmaking"
+              echo "🤖 Running command: $CMD"
+              eval "$CMD"
+
+          elif [[ "$MODE" == "tournament" ]]; then
+              if [[ -z "$TOUR_ID" ]]; then
+                  echo "⚠️ Tournament ID missing. Skipping."
+              else
+                  # Construct CLI arguments correctly
+                  ARGS="$TOUR_ID"
+                  [[ -n "$TEAM_ID" ]] && ARGS="$ARGS $TEAM_ID"
+                  [[ -n "$PASSWORD" ]] && ARGS="$ARGS $PASSWORD"
+
+                  echo "🤖 Joining tournament: $ARGS"
+                  # pass tournament as real argument
+                  eval "$CMD_BASE \"tournament $ARGS\""
+              fi
+
+          else
+              echo "⚠️ Mode not recognized. Running normal mode."
+              eval "$CMD_BASE"
+          fi
+
+      - name: Auto-Restart After Timeout
+        run: |
+          BOT_PID=$!
+          ( sleep 20700 && echo "⏰ Time's up. Restarting bot..." && kill -SIGTERM $BOT_PID ) &
+          wait $BOT_PID
+          echo "Bot ended cleanly."
