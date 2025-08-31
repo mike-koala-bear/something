@@ -287,3 +287,5 @@ books:
   White: "./books/white.bin"
   Black: "./books/black.bin"
   Win: "./books/win.bin"
+  small: "./books/small.bin"
+  probook: "./books/lowpro.bin"
