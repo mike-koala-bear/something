@@ -21,12 +21,12 @@ engines:
     path: "./engines/ShashChess39-x86-64-avx2"
     ponder: true
     silence_stderr: false
-    move_overhead_multiplier: 21.0
+    move_overhead_multiplier: 1.0
     uci_options:
-      Threads: 2 # Max cores on GitHub Actions
-      Hash: 256 # 1 GB for deeper tactical calculation
+      Threads: 8 # Max cores on GitHub Actions
+      Hash: 8192 # 1 GB for deeper tactical calculation
       UCI_ShowWDL: true
-      Move Overhead: 30 # Minimal overhead → fastest moves
+      Move Overhead: 100 # Minimal overhead → fastest moves
     limits:
 
   chess960: # Engine used for standard chess and when no suitable special engine is configured.
