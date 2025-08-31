@@ -70,7 +70,7 @@ jobs:
           mv engines/stockfish_* engines/stockfish
           chmod +x engines/stockfish
           # Other engines
-          if [ -f "engines/fairy-stockfish-largeboard_x86-64" ]; then chmod +x engines/fairy-stockfish-largeboard_x86-64; fi
+          if [ -f "engines/fairy-stockfish-largeboard_x86-64-modern" ]; then chmod +x engines/fairy-stockfish-largeboard_x86-64-modern; fi
           if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then chmod +x engines/stockfish-ubuntu-x86-64-avx2; fi
 
       - name: Inject Lichess Bot Token
