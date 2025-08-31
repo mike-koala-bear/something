@@ -94,10 +94,15 @@ opening_books:
   enabled: true
   priority: 900
   books:
+    3+0: # Blitz games (5+3)
+      selection: weighted_random
+      names:
+        - small
+        - probook
     standard_black:
       selection: best_move
       names:
-        # - Stay
+        - Stay
         - Win
         - Black
         - StockfishBook
@@ -105,7 +110,7 @@ opening_books:
     standard_white:
       selection: best_move
       names:
-        # - Stay
+        - Stay
         - White
         - Black
         - Optimus
