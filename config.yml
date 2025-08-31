@@ -97,16 +97,20 @@ opening_books:
     standard_black:
       selection: best_move
       names:
-        - Stay
+        # - Stay
         - Win
         - Black
+        - StockfishBook
+        - PerfectBook
     standard_white:
       selection: best_move
       names:
-        - Stay
+        # - Stay
         - White
         - Black
         - Optimus
+        - StockfishBook
+        - PerfectBook
 
 online_moves:
   opening_explorer:
