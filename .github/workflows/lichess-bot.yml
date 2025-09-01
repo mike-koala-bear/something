@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355 # Keep under GitHub 6h limit
     env:
-      LICHESS_BOT_TOKEN: ${{ secrets.LICHESS_KEY }}
+      LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Inject Bot Token
-        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_KEY }}/g" config.yml
+        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
 
       - name: Join Tournament (if provided)
         if: ${{ github.event.inputs.tournament_id != '' }}
@@ -87,7 +87,7 @@ jobs:
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
           echo "Joining tournament $TOURNAMENT_ID..."
           curl -s -X POST \
-            -H "Authorization: Bearer $LICHESS_BOT_TOKEN" \
+            -H "Authorization: Bearer $LICHESS_TOKEN" \
             https://lichess.org/api/tournament/$TOURNAMENT_ID/join
           echo "✅ Tournament join request sent"
 
