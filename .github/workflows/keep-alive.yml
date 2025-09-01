@@ -42,6 +42,6 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot.yml/dispatches \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/lichess-bot.yml/dispatches \
             -d '{"ref":"${{ github.ref_name }}"}'
           echo "✅ Bot workflow triggered"
