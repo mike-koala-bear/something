@@ -1,4 +1,4 @@
-name: Run botli (Hybrid: Tournament to Matchmaking)
+name: Run botli Hybrid Tournament to Matchmaking
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 355  # Keep under GitHub 6h limit
+    timeout-minutes: 355 # Keep under GitHub 6h limit
     env:
       LICHESS_BOT_TOKEN: ${{ secrets.LICHESS_KEY }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,7 +94,7 @@ jobs:
       - name: Run Bot with Hybrid Mode
         run: |
           echo "Starting bot..."
-          
+
           UPGRADE="${{ github.event.inputs.upgrade }}"
           MATCHMAKING="${{ github.event.inputs.matchmaking }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
