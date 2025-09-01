@@ -21,14 +21,14 @@ engines:
     path: "./engines/stockfish-ubuntu-x86-64-avx2"
     ponder: true
     silence_stderr: false
-    move_overhead_multiplier: 22.0
+    move_overhead_multiplier: 1.1
     uci_options:
       Threads: 8 # Max cores on GitHub Actions
       Hash: 8192 # 1 GB for deeper tactical calculation
       UCI_ShowWDL: true
-      Move Overhead: 250 # Minimal overhead → fastest moves
+      Move Overhead: 30 # Minimal overhead → fastest moves
     limits:
-      time: 1.2
+      # time: 1.2
 
   chess960: # Engine used for standard chess and when no suitable special engine is configured.
     dir: "./engines" # Directory containing the engine.
@@ -119,6 +119,7 @@ opening_books:
         - Optimus
         - StockfishBook
         - PerfectBook
+    # 3+0 human is just so humans cant play the draw book and get draws
     3+0_human:
       selection: best_move
       names:
