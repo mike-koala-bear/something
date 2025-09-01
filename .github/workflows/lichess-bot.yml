@@ -1,4 +1,4 @@
-name: Run botli (Hybrid: Tournament → Matchmaking)
+name: Run botli (Hybrid: Tournament to Matchmaking)
 
 on:
   workflow_dispatch:
