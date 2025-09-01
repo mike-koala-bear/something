@@ -1,142 +1,171 @@
-name: Lichess Bot Runner
-
-concurrency:
-  group: lichess-bot-runner
-  cancel-in-progress: true
+name: Run botli
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Bot Mode"
-        type: choice
-        required: true
-        options:
-          - normal
-          - matchmaking
-          - tournament
-      tournament_id:
-        description: "Tournament ID (if tournament mode)"
-        type: string
+      upgrade:
+        description: "Upgrade to a Lichess bot account?"
         required: false
-      team_id:
-        description: "Team ID (optional)"
-        type: string
+        type: boolean
+        default: "false"
+      matchmaking:
+        description: "Enable matchmaking?"
         required: false
-      password:
-        description: "Tournament password (optional)"
-        type: string
+        type: boolean
+        default: "true"
+      additional_command:
+        description: "Optional commands to pass (wrap in quotes)"
         required: false
-  schedule:
-    - cron: "0 */6 * * *" # every 6 hours
+        default: ""
+      never_stop:
+        description: "Never stop matchmaking unless it stops itself"
+        required: false
+        type: boolean
+        default: "true"
+      stop_seconds:
+        description: "Seconds to wait before sending stop command (ignored if never_stop ticked)"
+        required: false
+        default: ""
+
   push:
-    branches: [main]
+    branches:
+      - "main"
     paths:
-      - "**.py"
-      - "config.yml"
+      - "user_interface.py"
+
+  schedule:
+    - cron: "0 */6 * * *" # Runs at 00:00, 06:00, 12:00, 18:00 UTC
 
 permissions:
   actions: write
-  contents: write
+  contents: read
 
 jobs:
-  bot-runner:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # restart before GitHub 6h limit
+    timeout-minutes: 355
+    env:
+      LICHESS_BOT_TOKEN: ${{ secrets.LICHESS_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v5
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download and setup engines
+        run: |
+          mkdir -p engines
+
+          echo "Downloading Stockfish..."
+          curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
+          unzip -o stockfish.zip -d engines/
+          mv engines/stockfish_* engines/sf
+          chmod +x engines/sf
+
+          echo "Downloading FSF..."
+          wget https://github.com/thesuperdabc/NimasBot/raw/refs/heads/main/engines/fsf -O engines/fsf
+          chmod +x engines/fsf
+
+          echo "Verifying engines..."
+          ls -la engines/
+          file engines/sf engines/fsf
+          ./engines/sf --version || true
+          ./engines/fsf --version || true
 
       - name: Clone Private Config Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           repository: mike-koala-bear/tacticalbot-config
           token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
           path: tacticalbot-config
 
       - name: Copy Private Config
-        run: cp tacticalbot-config/config.yml ./config.yml
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install tenacity pyyaml
-
-      - name: Setup Engines
-        run: |
-          chmod +x engines/stockfish-* || true
-          echo "✅ Stockfish binary ready from repo"
-
-          # Optional: enable other engines if you commit them
-          if [ -f "engines/fairy-stockfish-largeboard_x86-64-modern" ]; then 
-            chmod +x engines/fairy-stockfish-largeboard_x86-64-modern
-          fi
-          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then 
-            chmod +x engines/stockfish-ubuntu-x86-64-avx2
-          fi
-          if [ -f "engines/ShashChess39-x86-64-avx2" ]; then 
-            chmod +x engines/ShashChess39-x86-64-avx2
-          fi
-
-      - name: Inject Lichess Bot Token
-        env:
-          LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
-        run: |
-          python3 << 'EOF'
-          import os, yaml
-          token = os.environ.get("LICHESS_TOKEN")
-          if not token:
-              print("ERROR: LICHESS_TOKEN secret is missing!")
-              exit(1)
-          with open("config.yml","r") as f:
-              config = yaml.safe_load(f) or {}
-          config["token"] = token
-          with open("config.yml","w") as f:
-              yaml.dump(config,f, default_flow_style=False)
-          print("✅ Token injected successfully")
-          EOF
-
-      - name: Launch Bot
-        run: |
-          CMD_BASE="python3 -u user_interface.py"
-          MODE="${{ github.event.inputs.mode }}"
-          TOUR_ID="${{ github.event.inputs.tournament_id }}"
-          TEAM_ID="${{ github.event.inputs.team_id }}"
-          PASSWORD="${{ github.event.inputs.password }}"
-
-          if [[ "$MODE" == "matchmaking" ]]; then
-              CMD="$CMD_BASE matchmaking"
-              echo "🤖 Running command: $CMD"
-              eval "$CMD"
-
-          elif [[ "$MODE" == "tournament" ]]; then
-              if [[ -z "$TOUR_ID" ]]; then
-                  echo "⚠️ Tournament ID missing. Skipping."
-              else
-                  ARGS="$TOUR_ID"
-                  [[ -n "$TEAM_ID" ]] && ARGS="$ARGS $TEAM_ID"
-                  [[ -n "$PASSWORD" ]] && ARGS="$ARGS $PASSWORD"
-
-                  echo "🤖 Joining tournament: $ARGS"
-                  eval "$CMD_BASE \"tournament $ARGS\""
-              fi
-
+          if [ -f tacticalbot-config/config.yml ]; then
+            echo "✅ Using private config.yml"
+            cp tacticalbot-config/config.yml ./config.yml
           else
-              echo "⚠️ Mode not recognized. Running normal mode."
-              eval "$CMD_BASE"
+            echo "⚠️ Private config not found, falling back to default config.yml"
           fi
 
-      - name: Auto-Restart After Timeout
+      - name: Inject Secret Token
+        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_KEY }}/g" config.yml
+
+      - name: Install GitHub CLI
         run: |
-          BOT_PID=$!
-          ( sleep 20700 && echo "⏰ Time's up. Restarting bot..." && kill -SIGTERM $BOT_PID ) &
-          wait $BOT_PID
+          type -p gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&  
+          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg &&  
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&  
+          sudo apt update && sudo apt install gh -y)
+
+      - name: Cancel any previous active workflows
+        run: |
+          echo "Checking for previous active workflows..."  
+          CURRENT_RUN_ID=${{ github.run_id }}  
+
+          RUNS=$(gh run list --workflow "Run botli" --status in_progress --json databaseId --jq ".[].databaseId" | grep -v "^$" | grep -v "$CURRENT_RUN_ID" || true)  
+
+          if [ -n "$RUNS" ]; then  
+            echo "Found previous active workflow(s): $RUNS"  
+            for RUN_ID in $RUNS; do  
+              echo "Cancelling workflow $RUN_ID..."  
+              gh run cancel "$RUN_ID"  
+            done  
+          else  
+            echo "No previous active workflows found."  
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Bot
+        run: |
+          echo "Starting bot..."  
+            
+          UPGRADE="${{ github.event.inputs.upgrade }}"  
+          MATCHMAKING="${{ github.event.inputs.matchmaking }}"  
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}  
+          NEVER_STOP="${{ github.event.inputs.never_stop }}"  
+          STOP_SECONDS="${{ github.event.inputs.stop_seconds }}"  
+            
+          CMD="python3 -u user_interface.py"  
+          [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"  
+          [ "$MATCHMAKING" = "true" ] && CMD="$CMD matchmaking"  
+          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"  
+            
+          echo "Running command: $CMD"  
+          eval "$CMD" &  
+          BOT_PID=$!  
+            
+          if [ "$MATCHMAKING" = "true" ]; then  
+            if [ "$NEVER_STOP" = "true" ]; then  
+              echo "Never stop ticked. Stop command will not run."  
+            else  
+              if ! [[ "$STOP_SECONDS" =~ ^[0-9]+$ ]] || [ "$STOP_SECONDS" -le 0 ]; then  
+                echo "Invalid stop_seconds input: $STOP_SECONDS. Skipping stop."  
+              else  
+                echo "Scheduling stop command in $STOP_SECONDS seconds..."  
+                ( sleep "$STOP_SECONDS" && echo "Running stop command..." && python3 -u user_interface.py stop ) &  
+              fi  
+            fi  
+          fi  
+            
+          ( sleep 21000 && echo "Time up. Killing bot..." && kill -SIGTERM $BOT_PID ) &  
+            
+          wait $BOT_PID  
           echo "Bot ended cleanly."

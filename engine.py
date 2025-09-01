@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import subprocess
@@ -83,7 +82,7 @@ class Engine:
                         increment: float
                         ) -> tuple[chess.Move, chess.engine.InfoDict]:
         if len(board.move_stack) < 2:
-            time_limit = 10.0 if self.opponent.is_engine else 5.0
+            time_limit = 15.0 if self.opponent.is_engine else 5.0
             if self.limit_config.time:
                 time_limit = min(time_limit, self.limit_config.time)
 
@@ -102,15 +101,6 @@ class Engine:
         if not result.move:
             raise RuntimeError('Engine could not make a move!')
 
-        return result.move, result.info
-
-    async def make_hint_move(self, board: chess.Board) -> tuple[chess.Move, chess.engine.InfoDict]:
-        limit = chess.engine.Limit(time=1.0, depth=10)
-        result = await self.engine.play(board, limit, info=chess.engine.INFO_ALL)
-        
-        if not result.move:
-            raise RuntimeError('Engine could not make a move!')
-        
         return result.move, result.info
 
     async def start_pondering(self, board: chess.Board) -> None:
