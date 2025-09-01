@@ -55,7 +55,7 @@ jobs:
           echo "Leaving tournament $TOURNAMENT_ID..."
           curl -s -X POST \
             -H "Authorization: Bearer $LICHESS_TOKEN" \
-            "https://lichess.org/api/tournament/$TOURNAMENT_ID/leave"
+            "https://lichess.org/api/bot/tournament/$TOURNAMENT_ID/leave"
           echo "✅ Tournament left"
 
       - name: Stop Bot
