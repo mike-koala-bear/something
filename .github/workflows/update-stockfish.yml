@@ -1,0 +1,50 @@
+name: Update Stockfish Binary
+
+on:
+  workflow_dispatch:   # manual trigger
+  schedule:
+    - cron: "0 0 * * *"   # run once a day at midnight UTC
+
+jobs:
+  update-stockfish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Download Latest Stockfish Binaries
+        run: |
+          mkdir -p engines
+          curl -s https://abrok.eu/stockfish/latest/ > latest.html
+
+          # Extract available builds
+          grep -o 'stockfish_.*linux.*\.zip' latest.html | sort -u > builds.txt
+          echo "Available builds:"
+          cat builds.txt
+
+          # Prefer AVX2 > BMI2 > Modern
+          if grep -q "stockfish_x64_avx2.zip" builds.txt; then
+            URL="https://abrok.eu/stockfish/latest/linux/stockfish_x64_avx2.zip"
+            BIN="stockfish-avx2"
+          elif grep -q "stockfish_x64_bmi2.zip" builds.txt; then
+            URL="https://abrok.eu/stockfish/latest/linux/stockfish_x64_bmi2.zip"
+            BIN="stockfish-bmi2"
+          else
+            URL="https://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip"
+            BIN="stockfish-modern"
+          fi
+
+          echo "Downloading: $URL"
+          curl -L -o stockfish.zip "$URL"
+          unzip -o stockfish.zip -d engines/
+          mv engines/stockfish* "engines/$BIN"
+          chmod +x "engines/$BIN"
+
+      - name: Commit New Binary
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add engines/
+          git commit -m "♟️ Update Stockfish binary to latest dev" || echo "No changes"
+          git push
