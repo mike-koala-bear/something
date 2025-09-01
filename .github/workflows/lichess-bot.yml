@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: mike-koala-bear/tacticalbot-config
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
           path: tacticalbot-config
 
       - name: Copy Private Config
