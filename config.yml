@@ -17,8 +17,8 @@ engines:
 
   standard:
     dir: "./engines"
-    name: "ShashChess39-x86-64-avx2"
-    path: "./engines/ShashChess39-x86-64-avx2"
+    name: "stockfish-ubuntu-x86-64-avx2"
+    path: "./engines/stockfish-ubuntu-x86-64-avx2"
     ponder: true
     silence_stderr: false
     move_overhead_multiplier: 22.0
@@ -32,7 +32,7 @@ engines:
 
   chess960: # Engine used for standard chess and when no suitable special engine is configured.
     dir: "./engines" # Directory containing the engine.
-    name: "ShashChess39-x86-64-avx2" # Binary name of the engine to use.
+    name: "stockfish-ubuntu-x86-64-avx2" # Binary name of the engine to use.
     ponder: true # Think on opponent's time.
     silence_stderr: false # Suppresses stderr output.
     move_overhead_multiplier: 20.0 # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
@@ -117,6 +117,14 @@ opening_books:
         - White
         - Black
         - Optimus
+        - StockfishBook
+        - PerfectBook
+    3+0_human:
+      selection: best_move
+      names:
+        - Titans
+        - Win
+        - Black
         - StockfishBook
         - PerfectBook
 

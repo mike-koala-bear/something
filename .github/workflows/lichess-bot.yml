@@ -42,7 +42,7 @@ permissions:
 jobs:
   bot-runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # restart just before GitHub limit
+    timeout-minutes: 355 # restart before GitHub 6h limit
 
     steps:
       - name: Checkout Repository
@@ -62,17 +62,19 @@ jobs:
 
       - name: Setup Engines
         run: |
-          mkdir -p engines
-          sudo apt-get update && sudo apt-get install -y unzip
-          # Stockfish
-          curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
-          unzip -o stockfish.zip -d engines/
-          mv engines/stockfish_* engines/stockfish
-          chmod +x engines/stockfish
-          # Other engines
-          if [ -f "engines/fairy-stockfish-largeboard_x86-64-modern" ]; then chmod +x engines/fairy-stockfish-largeboard_x86-64-modern; fi
-          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then chmod +x engines/stockfish-ubuntu-x86-64-avx2; fi
-          if [ -f "engines/ShashChess39-x86-64-avx2" ]; then chmod +x engines/ShashChess39-x86-64-avx2; fi
+          chmod +x engines/stockfish-* || true
+          echo "✅ Stockfish binary ready from repo"
+
+          # Optional: enable other engines if you commit them
+          if [ -f "engines/fairy-stockfish-largeboard_x86-64-modern" ]; then 
+            chmod +x engines/fairy-stockfish-largeboard_x86-64-modern
+          fi
+          if [ -f "engines/stockfish-ubuntu-x86-64-avx2" ]; then 
+            chmod +x engines/stockfish-ubuntu-x86-64-avx2
+          fi
+          if [ -f "engines/ShashChess39-x86-64-avx2" ]; then 
+            chmod +x engines/ShashChess39-x86-64-avx2
+          fi
 
       - name: Inject Lichess Bot Token
         env:
@@ -109,13 +111,11 @@ jobs:
               if [[ -z "$TOUR_ID" ]]; then
                   echo "⚠️ Tournament ID missing. Skipping."
               else
-                  # Construct CLI arguments correctly
                   ARGS="$TOUR_ID"
                   [[ -n "$TEAM_ID" ]] && ARGS="$ARGS $TEAM_ID"
                   [[ -n "$PASSWORD" ]] && ARGS="$ARGS $PASSWORD"
 
                   echo "🤖 Joining tournament: $ARGS"
-                  # pass tournament as real argument
                   eval "$CMD_BASE \"tournament $ARGS\""
               fi
 
