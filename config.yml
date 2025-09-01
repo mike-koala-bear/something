@@ -104,6 +104,7 @@ opening_books:
       selection: best_move
       names:
         - Stay
+        - Titans
         - Win
         - Black
         - StockfishBook
@@ -112,6 +113,7 @@ opening_books:
       selection: best_move
       names:
         - Stay
+        - Titans
         - White
         - Black
         - Optimus
@@ -290,3 +292,4 @@ books:
   Win: "./books/win.bin"
   small: "./books/small.bin"
   probook: "./books/lowpro.bin"
+  Titans: "./books/Titans.bin"
