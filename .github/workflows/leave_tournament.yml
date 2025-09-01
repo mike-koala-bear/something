@@ -1,0 +1,65 @@
+name: Leave Tournament After Current Game
+
+on:
+  workflow_dispatch:
+    inputs:
+      tournament_id:
+        description: "Tournament ID to leave"
+        required: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  leave_after_game:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LICHESS_TOKEN: ${{ secrets.LICHESS_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for Current Game to Finish
+        run: |
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          echo "Waiting for current game in tournament $TOURNAMENT_ID to finish..."
+
+          while true; do
+            STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+              "https://lichess.org/api/bot/game/stream" | jq -r '.status // empty')
+
+            # If bot is not in a game, break
+            if [[ "$STATUS" == "outoftournament" || "$STATUS" == "" ]]; then
+              echo "No active game detected. Proceeding to leave tournament."
+              break
+            fi
+
+            echo "Still playing... checking again in 15s."
+            sleep 15
+          done
+
+      - name: Leave Tournament
+        run: |
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          echo "Leaving tournament $TOURNAMENT_ID..."
+          curl -s -X POST \
+            -H "Authorization: Bearer $LICHESS_TOKEN" \
+            "https://lichess.org/api/tournament/$TOURNAMENT_ID/leave"
+          echo "✅ Tournament left"
+
+      - name: Stop Bot
+        run: |
+          echo "Stopping bot..."
+          pkill -f "user_interface.py" || true
+          echo "✅ Bot stopped"
