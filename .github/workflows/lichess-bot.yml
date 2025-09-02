@@ -1,170 +1,239 @@
-- name: Start bot (robust - detect non-json / debug)
-  env:
-    LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
-  run: |
-    set -euo pipefail
-    echo "Starting bot..."
-    CONFIG_FILE="./config.yml"
-    TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-    ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+name: Lichess Bot
 
-    if [ ! -f "$CONFIG_FILE" ]; then
-      echo "❌ Config file not found at $CONFIG_FILE"
-      exit 1
-    fi
+on:
+  workflow_dispatch:
+    inputs:
+      tournament_id:
+        description: "Tournament ID to auto-join (optional)"
+        required: false
+        default: ""
+      additional_command:
+        description: "Optional commands to pass (wrap in quotes)"
+        required: false
+        default: ""
+      never_stop:
+        description: "Never stop matchmaking unless it stops itself"
+        required: false
+        type: boolean
+        default: "true"
 
-    # Helper: fetch tournament metadata with code + content-type + body
-    fetch_tournament() {
-      local id="$1"
-      # -sS = silent but fail on error, -D - prints headers; we'll capture body+code+ctype
-      # Use -H Accept to prefer JSON, but we still read content-type header
-      # We write body then newline then code then newline then content-type
-      resp=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
-        -w "\n%{http_code}\n%{content_type}" \
-        "https://lichess.org/api/tournament/$id" || true)
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == github.actor
 
-      # split response
-      code=$(echo "$resp" | tail -n1)
-      ctype=$(echo "$resp" | tail -n2 | head -n1)
-      body=$(echo "$resp" | sed '$d' | sed '$d') # drop last two lines (code + ctype)
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
 
-      echo "=== HTTP $code   content-type: $ctype ==="
-      # print first 200 lines of body for debugging
-      echo "$body" | sed -n '1,200p'
-      echo "=== END BODY PREVIEW ==="
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
-      # export for caller
-      printf '%s\n%s\n' "$code" "$ctype"
-      printf '%s' "$body"
-    }
+      - name: Install system tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
 
-    if [ -n "$TOURNAMENT_ID" ]; then
-      echo "Tournament requested: $TOURNAMENT_ID"
+      - name: Install Python deps
+        run: |
+          pip install -r requirements.txt
 
-      while true; do
-        raw_fetch="$(fetch_tournament "$TOURNAMENT_ID")"
-        # fetch_tournament prints headers+body to stdout; capture them properly
-        # We'll parse the first line printed (HTTP code) and second (ctype) from the function output
+      - name: Clone Private Config Repo
+        uses: actions/checkout@v5
+        with:
+          repository: mike-koala-bear/tacticalbot-config
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
+          path: tacticalbot-config
 
-        # Because fetch_tournament echoes debug to stdout, we need to re-run a quieter request to parse after seeing debug
-        # Do a compact query to obtain code + ctype + body again (but without extra debug prints)
-        compact=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
-          -w "\n%{http_code}\n%{content_type}" \
-          "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
-
-        code=$(echo "$compact" | tail -n1)
-        ctype=$(echo "$compact" | tail -n2 | head -n1)
-        body=$(echo "$compact" | sed '$d' | sed '$d')
-
-        echo "Polled tournament: HTTP $code  content-type: $ctype"
-
-        if [ "$code" != "200" ]; then
-          echo "Non-200 HTTP code fetching tournament. Body (first 50 lines) shown above."
-          if [ "$code" = "404" ]; then
-            echo "404: tournament not found. Check tournament ID."
+      - name: Copy Private Config
+        run: |
+          if [ -f tacticalbot-config/config.yml ]; then
+            cp tacticalbot-config/config.yml ./config.yml
+            echo "✅ config.yml copied"
+          else
+            echo "❌ config.yml not found in tacticalbot-config repo"
             exit 1
           fi
-          if [ "$code" = "403" ]; then
-            echo "403: Access forbidden — token may be missing or not a bot token with required scopes."
+
+      - name: Inject Bot Token
+        run: |
+          if grep -q "tokenXXXXX" config.yml; then
+            sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+            echo "✅ token injected into config.yml"
+          else
+            echo "⚠️ token placeholder not found in config.yml — ensure config uses tokenXXXXX or set LICHESS_TOKEN env."
+          fi
+
+      - name: Start bot (robust fetch + debug)
+        env:
+          LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Starting bot..."
+
+          CONFIG_FILE="./config.yml"
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+
+          # quick token presence check (safe, does not print the token)
+          if [ -z "${LICHESS_TOKEN:-}" ]; then
+            echo "❌ LICHESS_TOKEN secret is not set in this workflow. Aborting."
+            exit 1
+          else
+            echo "✅ LICHESS_TOKEN is present."
+          fi
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file not found at $CONFIG_FILE"
             exit 1
           fi
-          # transient error: retry
-          echo "Transient/non-OK response, retrying in 5s..."
-          sleep 5
-          continue
-        fi
 
-        # If content-type not JSON, show body and retry or abort
-        if ! echo "$ctype" | grep -qi 'application/json'; then
-          echo "Content-type is not JSON (got: $ctype). First 200 lines of body above — likely HTML (login/page), check token or endpoint."
-          # If it's HTML that says 'Not Found' or login page, abort with helpful message
-          echo "If you see an HTML login page, your Authorization header may be wrong or the token lacks access."
-          exit 1
-        fi
-
-        # parse status safely
-        status=$(echo "$body" | jq -r '.status // "unknown"')
-        echo "Tournament status: $status"
-
-        if [ "$status" = "created" ]; then
-          echo "Tournament not started yet. Start matchmaking while waiting..."
-          python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking &
-          MM_PID=$!
-          while true; do
-            # re-fetch status
-            compact=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
+          # helper: do a tournament GET and print HTTP code + content-type + small body preview
+          fetch_meta() {
+            id="$1"
+            resp=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
               -w "\n%{http_code}\n%{content_type}" \
-              "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
-            code=$(echo "$compact" | tail -n1)
-            body=$(echo "$compact" | sed '$d' | sed '$d')
-            status=$(echo "$body" | jq -r '.status // "unknown"')
-            echo "Waiting: polled status = $status (HTTP $code)"
-            if [ "$status" != "created" ]; then
-              echo "Status changed to $status; stopping matchmaking."
-              [ -n "${MM_PID:-}" ] && kill -SIGTERM "$MM_PID" || true
-              wait "${MM_PID:-}" 2>/dev/null || true
-              break
-            fi
-            sleep 5
-          done
-          # loop continues to handle new status
-        fi
+              "https://lichess.org/api/tournament/$id" || true)
+            code=$(echo "$resp" | tail -n1)
+            ctype=$(echo "$resp" | tail -n2 | head -n1)
+            body=$(echo "$resp" | sed '$d' | sed '$d')
+            echo "=== GET /api/tournament/$id -> HTTP $code   content-type: $ctype ==="
+            echo "$body" | sed -n '1,80p'
+            echo "=== end preview ==="
+            printf '%s\n%s\n' "$code" "$ctype"
+            # emit body on stdout for callers that need it
+            printf '%s' "$body"
+          }
 
-        if [ "$status" = "started" ]; then
-          echo "Tournament is started. Attempting to join via API..."
-
-          # join with retries and print join response
-          join_ok=1
-          for i in 1 2 3 4 5; do
-            echo "Join attempt #$i ..."
-            join_resp=$(curl -sS -w "\n%{http_code}" -X POST -H "Authorization: Bearer $LICHESS_TOKEN" \
-              "https://lichess.org/api/tournament/$TOURNAMENT_ID/join" || true)
+          # helper: attempt to join, print status/body, return 0 on success
+          join_tournament() {
+            id="$1"
+            echo "--- POST /api/tournament/$id/join ---"
+            join_resp=$(curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" -w "\n%{http_code}" \
+              "https://lichess.org/api/tournament/$id/join" || true)
             join_code=$(echo "$join_resp" | tail -n1)
             join_body=$(echo "$join_resp" | sed '$d' || true)
             echo "Join HTTP: $join_code"
             if [ -n "$join_body" ]; then
-              echo "Join body (first 80 lines):"
+              echo "Join body (preview):"
               echo "$join_body" | sed -n '1,80p'
             fi
             if [ "$join_code" = "200" ] || [ "$join_code" = "204" ]; then
-              echo "Join succeeded (HTTP $join_code)"
-              join_ok=0
-              break
+              echo "✅ join success (HTTP $join_code)"
+              return 0
             fi
-            if [ "$join_code" = "403" ]; then
-              echo "403 on join: token may be invalid or bot not allowed to join. Abort and check token/scopes."
-              exit 1
-            fi
-            if [ "$join_code" = "404" ]; then
-              echo "404 on join: tournament not found or wrong ID. Abort."
-              exit 1
-            fi
-            echo "Join attempt failed (HTTP $join_code). Retrying in 4s..."
-            sleep 4
-          done
+            echo "❌ join failed (HTTP $join_code)"
+            return 1
+          }
 
-          if [ $join_ok -ne 0 ]; then
-            echo "WARNING: join API did not return success after retries. Proceeding to start tournament mode anyway (may fail)."
+          if [ -n "$TOURNAMENT_ID" ]; then
+            echo "Tournament requested: $TOURNAMENT_ID"
+
+            while true; do
+              # fetch metadata + diagnostics
+              compact=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
+                -w "\n%{http_code}\n%{content_type}" \
+                "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
+              code=$(echo "$compact" | tail -n1)
+              ctype=$(echo "$compact" | tail -n2 | head -n1)
+              body=$(echo "$compact" | sed '$d' | sed '$d')
+
+              echo "Polled tournament: HTTP $code  content-type: $ctype"
+              if [ -n "$body" ]; then
+                echo "Body preview:"
+                echo "$body" | sed -n '1,40p'
+                echo "----"
+              else
+                echo "(empty body)"
+              fi
+
+              # handle obvious HTTP errors first
+              if [ "$code" != "200" ]; then
+                echo "Non-200 response fetching tournament."
+                if [ "$code" = "404" ]; then
+                  echo "404: tournament not found — verify ID is correct."
+                  exit 1
+                elif [ "$code" = "403" ]; then
+                  echo "403: access forbidden — token missing/invalid or needs bot scope."
+                  exit 1
+                else
+                  echo "Transient or unexpected HTTP $code. Retrying in 5s..."
+                  sleep 5
+                  continue
+                fi
+              fi
+
+              # only parse JSON if content type says json
+              if ! echo "$ctype" | grep -qi 'application/json'; then
+                echo "Content-type is not JSON. The API returned HTML or something else."
+                echo "This indicates either an incorrect token header, missing token, or the endpoint returned an HTML page (login / error page)."
+                echo "Action: verify LICHESS_TOKEN secret, and ensure it is a bot token with appropriate scopes."
+                echo "Dumping body preview above — inspect for login/403 HTML."
+                exit 1
+              fi
+
+              status=$(echo "$body" | jq -r '.status // "unknown"')
+              echo "Tournament status: $status"
+
+              if [ "$status" = "created" ]; then
+                echo "Tournament not started. Starting matchmaking while waiting..."
+                python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking &
+                MM_PID=$!
+                # wait until status changes
+                while true; do
+                  compact=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
+                    -w "\n%{http_code}\n%{content_type}" \
+                    "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
+                  new_status=$(echo "$compact" | sed '$d' | sed '$d' | jq -r '.status // "unknown"' || true)
+                  echo "Waiting: polled status = $new_status"
+                  if [ "$new_status" != "created" ]; then
+                    echo "Status changed to $new_status; stopping matchmaking."
+                    [ -n "${MM_PID:-}" ] && kill -SIGTERM "$MM_PID" || true
+                    wait "${MM_PID:-}" 2>/dev/null || true
+                    break
+                  fi
+                  sleep 5
+                done
+                # loop will continue to handle new status
+              fi
+
+              if [ "$status" = "started" ]; then
+                echo "Tournament started — attempting to join (retries)."
+                joined=1
+                for i in 1 2 3 4 5; do
+                  echo "Join attempt #$i..."
+                  if join_tournament "$TOURNAMENT_ID"; then
+                    joined=0
+                    break
+                  fi
+                  sleep 3
+                done
+
+                if [ $joined -ne 0 ]; then
+                  echo "Warning: join attempts failed. Check logs above for join response body (403/422/404)."
+                fi
+
+                echo "Launching tournament mode (passing --config)."
+                CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID"
+                [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+                echo "CMD: $CMD"
+                eval "$CMD"
+                break
+              fi
+
+              if [ "$status" = "finished" ]; then
+                echo "Tournament finished already — playing matchmaking."
+                python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking
+                break
+              fi
+
+              echo "Unhandled status ($status). Retrying in 5s..."
+              sleep 5
+            done
+
+          else
+            echo "No tournament specified — starting matchmaking only."
+            python3 -u user_interface.py --config $CONFIG_FILE matchmaking
           fi
-
-          echo "Launching tournament mode (passing --config explicitly)..."
-          CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID"
-          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-          echo "CMD: $CMD"
-          eval "$CMD"
-          break
-        fi
-
-        if [ "$status" = "finished" ]; then
-          echo "Tournament finished. Starting normal matchmaking..."
-          python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking
-          break
-        fi
-
-        echo "Unhandled status ($status). Retrying in 5s..."
-        sleep 5
-      done
-    else
-      echo "No tournament provided. Starting matchmaking only..."
-      python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking
-    fi
