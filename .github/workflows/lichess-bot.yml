@@ -49,15 +49,30 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Copy Config from Private Repo
+        uses: actions/checkout@v5
+        with:
+          repository: mike-koala-bear/tacticalbot-config
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
+          path: tacticalbot-config
+
+      - name: Copy and Inject Bot Token
+        run: |
+          if [ -f tacticalbot-config/config.yml ]; then
+            cp tacticalbot-config/config.yml ./config.yml
+            sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+            export LICHESS_BOT_TOKEN="${{ secrets.LICHESS_TOKEN }}"
+          fi
 
       - name: Join Tournament (if provided)
         if: ${{ github.event.inputs.tournament_id != '' }}
@@ -78,7 +93,7 @@ jobs:
           TOURNAMENT_WAIT="${{ github.event.inputs.tournament_wait }}"
           TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
 
-          # Start matchmaking if enabled
+          # Start pre-tournament matchmaking
           if [ "$MATCHMAKING" = "true" ] && [ "$TOURNAMENT_ID" != "" ]; then
             echo "Playing matchmaking while waiting for tournament..."
             python3 -u user_interface.py matchmaking &
@@ -105,7 +120,7 @@ jobs:
             done
           fi
 
-          # Kill matchmaking if running
+          # Kill pre-tournament matchmaking if running
           [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
 
           # Run bot in tournament mode
@@ -118,7 +133,7 @@ jobs:
             eval "$CMD" &
             BOT_PID=$!
 
-            # Watch tournament duration
+            # Monitor tournament duration and leave gracefully
             (
               SECONDS=$((TOURNAMENT_DURATION * 60))
               END=$((SECONDS + $(date +%s)))
@@ -138,7 +153,7 @@ jobs:
             echo "Tournament finished."
           fi
 
-          # Start matchmaking automatically after tournament if enabled
+          # Start post-tournament matchmaking automatically if enabled
           if [ "$MATCHMAKING" = "true" ]; then
             echo "Starting post-tournament matchmaking..."
             python3 -u user_interface.py matchmaking
