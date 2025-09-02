@@ -32,7 +32,8 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
       - name: Clone Private Config Repo
         uses: actions/checkout@v5
@@ -51,48 +52,52 @@ jobs:
           fi
 
       - name: Inject Bot Token
-        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+        run: |
+          sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
 
       - name: Start bot
         env:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           echo "Starting bot..."
+
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
 
           if [ -n "$TOURNAMENT_ID" ]; then
-            STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
-              "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
+            while true; do
+              STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
 
-            if [ "$STATUS" == "started" ]; then
-              echo "Tournament already started! Joining immediately..."
-              python3 -u user_interface.py tournament "$TOURNAMENT_ID" $ADDITIONAL_CMD
+              if [ "$STATUS" == "created" ]; then
+                echo "Tournament not started yet. Playing matchmaking..."
+                python3 -u user_interface.py matchmaking &
+                MM_PID=$!
+                while [ "$STATUS" == "created" ]; do
+                  sleep 5
+                  STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                    "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
+                done
+                [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID
+              fi
 
-            elif [ "$STATUS" == "created" ]; then
-              echo "Tournament not started yet. Playing matchmaking while waiting..."
-              python3 -u user_interface.py matchmaking &
-              MM_PID=$!
+              if [ "$STATUS" == "started" ]; then
+                echo "Tournament is in progress! Joining now..."
+                CMD="python3 -u user_interface.py tournament $TOURNAMENT_ID"
+                [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+                eval "$CMD"
+                break
+              fi
 
-              while true; do
-                STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
-                  "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
-                if [ "$STATUS" == "started" ]; then
-                  echo "Tournament started!"
-                  [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID
-                  break
-                fi
-                sleep 5
-              done
+              if [ "$STATUS" == "finished" ]; then
+                echo "Tournament finished. Resuming matchmaking..."
+                python3 -u user_interface.py matchmaking
+                break
+              fi
 
-              python3 -u user_interface.py tournament "$TOURNAMENT_ID" $ADDITIONAL_CMD
-
-            else
-              echo "Tournament already finished or unknown status. Playing matchmaking..."
-              python3 -u user_interface.py matchmaking $ADDITIONAL_CMD
-            fi
-
+              sleep 5
+            done
           else
             echo "No tournament provided. Starting matchmaking only..."
-            python3 -u user_interface.py matchmaking $ADDITIONAL_CMD
+            python3 -u user_interface.py matchmaking
           fi
