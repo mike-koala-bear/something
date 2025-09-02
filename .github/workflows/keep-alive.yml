@@ -1,29 +1,14 @@
-name: Continuous Lichess Bot
+name: Continuous Lichess Bot (8PM-2AM)
 
 on:
-  schedule:
-    # Run every 5 hours to ensure continuous operation
-    - cron: "0 */5 * * *"
   workflow_dispatch:
     inputs:
-      upgrade:
-        description: "Upgrade to a Lichess bot account?"
-        required: false
-        type: boolean
-        default: "false"
-      matchmaking:
-        description: "Enable matchmaking before tournament starts?"
-        required: false
-        type: boolean
-        default: "true"
       tournament_id:
-        description: "Tournament ID to auto-join (optional)"
-        required: false
-        default: ""
-      tournament_duration:
-        description: "Tournament duration in minutes"
-        required: false
-        default: "20"
+        description: "Tournament ID to auto-join"
+        required: true
+      team_id:
+        description: "Team ID for the battle"
+        required: true
       additional_command:
         description: "Optional commands to pass"
         required: false
@@ -36,7 +21,7 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # under GitHub 6h limit
+    timeout-minutes: 355 # Just under 6h
     env:
       LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,77 +45,58 @@ jobs:
           token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
           path: tacticalbot-config
 
-      - name: Inject config
+      - name: Inject Bot Token
         run: |
-          if [ -f tacticalbot-config/config.yml ]; then
-            cp tacticalbot-config/config.yml ./config.yml
-          fi
+          cp tacticalbot-config/config.yml ./config.yml
           sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
 
       - name: Run bot
         run: |
-          echo "Starting bot..."
-          UPGRADE="${{ github.event.inputs.upgrade }}"
-          MATCHMAKING="${{ github.event.inputs.matchmaking }}"
-          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-          TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
+          TEAM_ID="${{ github.event.inputs.team_id }}"
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
 
-          # Start matchmaking if enabled
-          if [ "$MATCHMAKING" = "true" ] && [ "$TOURNAMENT_ID" != "" ]; then
-            echo "Playing matchmaking while waiting for tournament..."
-            python3 -u user_interface.py matchmaking &
-            MM_PID=$!
-          fi
+          # Start matchmaking while waiting for tournament
+          echo "Starting matchmaking..."
+          python3 -u user_interface.py matchmaking &
+          MM_PID=$!
 
-          # Wait for tournament to start
-          if [ "$TOURNAMENT_ID" != "" ]; then
-            echo "Waiting for tournament $TOURNAMENT_ID to start..."
-            while true; do
+          # Wait for tournament start
+          echo "Waiting for tournament $TOURNAMENT_ID..."
+          while true; do
               STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
                 "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
               if [ "$STATUS" == "started" ]; then
-                echo "Tournament started!"
-                break
+                  echo "Tournament started!"
+                  break
               fi
               sleep 5
+          done
+
+          # Stop matchmaking
+          kill -SIGTERM $MM_PID || true
+
+          # Run tournament
+          CMD="python3 -u user_interface.py tournament $TOURNAMENT_ID $TEAM_ID"
+          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+          echo "Running tournament bot: $CMD"
+          eval "$CMD" &
+          BOT_PID=$!
+
+          # Monitor 2AM end (job timeout safe exit)
+          END=$(( $(date -d "02:00 next day" +%s) ))
+          (
+            while kill -0 $BOT_PID 2>/dev/null; do
+              NOW=$(date +%s)
+              if [ "$NOW" -ge "$END" ]; then
+                echo "Reached 2AM. Leaving tournament..."
+                python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
+                kill -SIGTERM $BOT_PID
+                break
+              fi
+              sleep 10
             done
-          fi
+          ) &
 
-          # Kill matchmaking if running
-          [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
-
-          # Run bot in tournament mode
-          if [ "$TOURNAMENT_ID" != "" ]; then
-            CMD="python3 -u user_interface.py"
-            [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"
-            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-            CMD="$CMD tournament $TOURNAMENT_ID"
-            echo "Running tournament bot: $CMD"
-            eval "$CMD" &
-            BOT_PID=$!
-
-            # Monitor tournament duration
-            (
-              END=$(( $(date +%s) + TOURNAMENT_DURATION*60 ))
-              while kill -0 $BOT_PID 2>/dev/null; do
-                NOW=$(date +%s)
-                if [ "$NOW" -ge "$END" ]; then
-                  echo "Tournament duration reached. Leaving after current game..."
-                  python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
-                  kill -SIGTERM $BOT_PID
-                  break
-                fi
-                sleep 10
-              done
-            ) &
-
-            wait $BOT_PID
-            echo "Tournament finished."
-          fi
-
-          # Continue matchmaking post-tournament
-          if [ "$MATCHMAKING" = "true" ]; then
-            echo "Starting post-tournament matchmaking..."
-            python3 -u user_interface.py matchmaking
-          fi
+          wait $BOT_PID
+          echo "Workflow 1 finished."
