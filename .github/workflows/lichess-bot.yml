@@ -1,20 +1,14 @@
-name: Lichess Bot
+name: Lichess Bot Team Battle
 
 on:
   workflow_dispatch:
     inputs:
       tournament_id:
-        description: "Tournament ID to auto-join (optional)"
-        required: false
-        default: ""
+        description: "Tournament ID to auto-join"
+        required: true
       team_id:
-        description: "Team ID for team battle (optional)"
-        required: false
-        default: ""
-      password:
-        description: "Tournament password (optional)"
-        required: false
-        default: ""
+        description: "Team ID for the battle"
+        required: true
       additional_command:
         description: "Optional commands to pass (wrap in quotes)"
         required: false
@@ -23,12 +17,11 @@ on:
         description: "Never stop matchmaking unless it stops itself"
         required: false
         type: boolean
-        default: "true"
+        default: true
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    if: github.repository_owner == github.actor
 
     steps:
       - name: Checkout repo
@@ -74,62 +67,51 @@ jobs:
             echo "⚠️ token placeholder not found in config.yml — ensure config uses tokenXXXXX or set LICHESS_TOKEN env."
           fi
 
-      - name: Start bot
+      - name: Start bot and join team battle
         env:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           set -euo pipefail
           echo "Starting bot..."
 
-          CONFIG_FILE="./config.yml"
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
           TEAM_ID="${{ github.event.inputs.team_id }}"
-          PASSWORD="${{ github.event.inputs.password }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+          CONFIG_FILE="./config.yml"
 
-          if [ -z "${LICHESS_TOKEN:-}" ]; then
-            echo "❌ LICHESS_TOKEN is not set. Aborting."
+          if [ -z "$LICHESS_TOKEN" ]; then
+            echo "❌ LICHESS_TOKEN not set. Aborting."
             exit 1
           fi
 
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ Config file not found at $CONFIG_FILE"
-            exit 1
-          fi
+          # 1️⃣ Check currently joined tournaments
+          echo "Fetching tournaments currently playing..."
+          playing_json=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" \
+            https://lichess.org/api/account/playing)
 
-          join_tournament() {
-            local tid="$1"
-            local team="$2"
-            local pw="$3"
-            echo "--- POST /api/tournament/$tid/join ---"
-            curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"team\":\"$team\",\"password\":\"$pw\"}" \
-              "https://lichess.org/api/tournament/$tid/join" \
-              -w "\nHTTP_CODE:%{http_code}\n"
-          }
+          echo "Currently joined tournaments:"
+          echo "$playing_json" | jq
 
-          if [ -n "$TOURNAMENT_ID" ]; then
-            echo "Tournament requested: $TOURNAMENT_ID"
+          # 2️⃣ Leave all tournaments (optional, remove if not desired)
+          for tid in $(echo "$playing_json" | jq -r '.nowPlaying[].id'); do
+            echo "Leaving tournament $tid..."
+            curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" \
+              "https://lichess.org/api/tournament/$tid/leave"
+          done
 
-            STATUS="started"  # assume started if polling not needed; can poll API for more logic
+          # 3️⃣ Join the team battle
+          echo "Joining team battle $TOURNAMENT_ID / $TEAM_ID..."
+          join_resp=$(curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"teamId\":\"$TEAM_ID\"}" \
+            "https://lichess.org/api/tournament/$TOURNAMENT_ID/join")
 
-            echo "Attempting to join tournament..."
-            RESPONSE=$(join_tournament "$TOURNAMENT_ID" "$TEAM_ID" "$PASSWORD")
-            echo "$RESPONSE"
+          echo "Join response:"
+          echo "$join_resp"
 
-            HTTP_CODE=$(echo "$RESPONSE" | grep -oP '(?<=HTTP_CODE:)\d+')
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
-              echo "✅ Tournament join successful."
-            else
-              echo "❌ Tournament join failed (HTTP $HTTP_CODE)"
-            fi
-
-            echo "Launching tournament mode..."
-            CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID $TEAM_ID $PASSWORD"
-            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-            echo "CMD: $CMD"
-            eval "$CMD"
-          else
-            echo "No tournament specified -> starting matchmaking only."
-            python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking
-          fi
+          # 4️⃣ Launch BotLi in tournament mode
+          echo "Launching BotLi..."
+          CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID $TEAM_ID"
+          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+          echo "CMD: $CMD"
+          eval "$CMD"
