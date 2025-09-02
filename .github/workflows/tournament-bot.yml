@@ -1,0 +1,120 @@
+name: Tournament Bot (12h → Matchmaking)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tournament_id:
+        description: "Tournament ID to auto-join"
+        required: true
+      additional_command:
+        description: "Optional commands to pass (wrap in quotes)"
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  tournament-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355 # ~5h55m (just under 6h)
+    env:
+      LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Clone Private Config Repo
+        uses: actions/checkout@v5
+        with:
+          repository: mike-koala-bear/tacticalbot-config
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
+          path: tacticalbot-config
+
+      - name: Copy Private Config
+        run: |
+          if [ -f tacticalbot-config/config.yml ]; then
+            cp tacticalbot-config/config.yml ./config.yml
+          fi
+
+      - name: Inject Bot Token
+        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+
+      - name: Join Tournament
+        run: |
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          echo "Joining tournament $TOURNAMENT_ID..."
+          curl -s -X POST \
+            -H "Authorization: Bearer $LICHESS_TOKEN" \
+            "https://lichess.org/api/tournament/$TOURNAMENT_ID/join"
+          echo "✅ Tournament join request sent"
+
+      - name: Run Bot (Tournament Mode)
+        run: |
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+
+          CMD="python3 -u user_interface.py tournament $TOURNAMENT_ID"
+          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+
+          echo "Running command: $CMD"
+          eval "$CMD" &
+          BOT_PID=$!
+
+          # Graceful shutdown loop before GitHub 6h timeout
+          (
+            sleep 21000  # ~5h50m
+            echo "⏳ Time almost up. Waiting for current game to finish..."
+            while true; do
+              GAME=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                https://lichess.org/api/account/playing | jq -r '.nowPlaying[0].gameId // empty')
+
+              if [[ -z "$GAME" ]]; then
+                echo "✅ Game finished. Leaving tournament..."
+                curl -s -X POST \
+                  -H "Authorization: Bearer $LICHESS_TOKEN" \
+                  "https://lichess.org/api/bot/tournament/$TOURNAMENT_ID/leave"
+                echo "✅ Tournament left."
+                kill -SIGTERM $BOT_PID || true
+                break
+              fi
+              echo "Still in game $GAME, checking again in 15s..."
+              sleep 15
+            done
+          ) &
+
+          wait $BOT_PID
+          echo "Bot stopped safely after finishing game."
+
+      - name: Restart Tournament Run or Switch to Matchmaking
+        run: |
+          PREV_RUNS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?status=completed&event=workflow_dispatch&per_page=10" \
+            | jq -r ".workflow_runs[] | select(.name==\"Tournament Bot (12h → Matchmaking)\") | .run_number" | wc -l)
+
+          if [ "$PREV_RUNS" -lt 2 ]; then
+            echo "🔄 Triggering another tournament run..."
+            curl -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $GH_TOKEN" \
+              https://api.github.com/repos/${{ github.repository }}/actions/workflows/tournament-bot.yml/dispatches \
+              -d "{\"ref\":\"${{ github.ref_name }}\",\"inputs\":{\"tournament_id\":\"${{ github.event.inputs.tournament_id }}\",\"additional_command\":\"${{ github.event.inputs.additional_command }}\"}}"
+          else
+            echo "✅ 12h reached. Switching to matchmaking mode..."
+            curl -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $GH_TOKEN" \
+              https://api.github.com/repos/${{ github.repository }}/actions/workflows/lichess-bot.yml/dispatches \
+              -d "{\"ref\":\"${{ github.ref_name }}\"}"
+          fi

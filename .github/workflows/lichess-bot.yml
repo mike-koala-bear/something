@@ -1,4 +1,4 @@
-name: Run botli Hybrid Tournament to Matchmaking
+name: Run Botli Hybrid Tournament → Matchmaking
 
 on:
   workflow_dispatch:
@@ -9,16 +9,24 @@ on:
         type: boolean
         default: "false"
       matchmaking:
-        description: "Enable matchmaking after tournament?"
+        description: "Enable matchmaking before tournament starts?"
         required: false
         type: boolean
         default: "true"
       tournament_id:
-        description: "Tournament ID to auto-join (optional)"
+        description: "Tournament ID to auto-join"
         required: false
         default: ""
+      tournament_wait:
+        description: "Max seconds to wait before tournament starts (for matchmaking)"
+        required: false
+        default: "60"
+      tournament_duration:
+        description: "Tournament duration in minutes"
+        required: false
+        default: "20"
       additional_command:
-        description: "Optional commands to pass (wrap in quotes)"
+        description: "Optional commands to pass"
         required: false
         default: ""
       never_stop:
@@ -26,10 +34,6 @@ on:
         required: false
         type: boolean
         default: "true"
-      stop_seconds:
-        description: "Seconds to wait before sending stop command (ignored if never_stop ticked)"
-        required: false
-        default: ""
 
 permissions:
   actions: write
@@ -38,7 +42,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # Keep under GitHub 6h limit
+    timeout-minutes: 355
     env:
       LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,73 +59,87 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Setup engines
-        run: |
-          mkdir -p engines
-          curl -L -o stockfish.zip http://abrok.eu/stockfish/latest/linux/stockfish_x64_modern.zip
-          unzip -o stockfish.zip -d engines/
-          mv engines/stockfish_* engines/sf
-          chmod +x engines/sf
-          wget https://github.com/thesuperdabc/NimasBot/raw/refs/heads/main/engines/fsf -O engines/fsf
-          chmod +x engines/fsf
-
-      - name: Clone Private Config Repo
-        uses: actions/checkout@v4
-        with:
-          repository: mike-koala-bear/tacticalbot-config
-          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
-          path: tacticalbot-config
-
-      - name: Copy Private Config
-        run: |
-          if [ -f tacticalbot-config/config.yml ]; then
-            cp tacticalbot-config/config.yml ./config.yml
-          fi
-
-      - name: Inject Bot Token
-        run: sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
-
       - name: Join Tournament (if provided)
         if: ${{ github.event.inputs.tournament_id != '' }}
         run: |
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
           echo "Joining tournament $TOURNAMENT_ID..."
-          curl -s -X POST \
-            -H "Authorization: Bearer $LICHESS_TOKEN" \
+          curl -s -X POST -H "Authorization: Bearer $LICHESS_TOKEN" \
             https://lichess.org/api/tournament/$TOURNAMENT_ID/join
           echo "✅ Tournament join request sent"
 
       - name: Run Bot with Hybrid Mode
         run: |
           echo "Starting bot..."
-
           UPGRADE="${{ github.event.inputs.upgrade }}"
           MATCHMAKING="${{ github.event.inputs.matchmaking }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
-          NEVER_STOP="${{ github.event.inputs.never_stop }}"
-          STOP_SECONDS="${{ github.event.inputs.stop_seconds }}"
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          TOURNAMENT_WAIT="${{ github.event.inputs.tournament_wait }}"
+          TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
 
-          CMD="python3 -u user_interface.py"
-          [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"
-          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-
-          # Join tournament if ID provided
-          if [ "${{ github.event.inputs.tournament_id }}" != "" ]; then
-            CMD="$CMD tournament ${{ github.event.inputs.tournament_id }}"
+          # Start matchmaking if enabled
+          if [ "$MATCHMAKING" = "true" ] && [ "$TOURNAMENT_ID" != "" ]; then
+            echo "Playing matchmaking while waiting for tournament..."
+            python3 -u user_interface.py matchmaking &
+            MM_PID=$!
           fi
 
-          echo "Running command: $CMD"
-          eval "$CMD" &
-          BOT_PID=$!
+          # Wait for tournament to start
+          if [ "$TOURNAMENT_ID" != "" ]; then
+            START=$(date +%s)
+            while true; do
+              STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
+              NOW=$(date +%s)
+              ELAPSED=$((NOW-START))
+              if [ "$STATUS" == "started" ]; then
+                echo "Tournament started!"
+                break
+              elif [ "$ELAPSED" -ge "$TOURNAMENT_WAIT" ]; then
+                echo "Tournament not started within wait time. Stopping matchmaking..."
+                [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID
+                break
+              fi
+              sleep 5
+            done
+          fi
 
-          # Schedule stop for GitHub workflow limit
-          ( sleep 21000 && echo "Time up. Killing bot..." && kill -SIGTERM $BOT_PID ) &
+          # Kill matchmaking if running
+          [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
 
-          wait $BOT_PID
-          echo "Tournament finished or workflow timed out."
+          # Run bot in tournament mode
+          if [ "$TOURNAMENT_ID" != "" ]; then
+            CMD="python3 -u user_interface.py"
+            [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"
+            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+            CMD="$CMD tournament $TOURNAMENT_ID"
+            echo "Running tournament bot: $CMD"
+            eval "$CMD" &
+            BOT_PID=$!
 
-          # Start matchmaking automatically if enabled
+            # Watch tournament duration
+            (
+              SECONDS=$((TOURNAMENT_DURATION * 60))
+              END=$((SECONDS + $(date +%s)))
+              while kill -0 $BOT_PID 2>/dev/null; do
+                NOW=$(date +%s)
+                if [ "$NOW" -ge "$END" ]; then
+                  echo "Tournament duration reached. Leaving after current game..."
+                  python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
+                  kill -SIGTERM $BOT_PID
+                  break
+                fi
+                sleep 10
+              done
+            ) &
+
+            wait $BOT_PID
+            echo "Tournament finished."
+          fi
+
+          # Start matchmaking automatically after tournament if enabled
           if [ "$MATCHMAKING" = "true" ]; then
-            echo "Starting matchmaking..."
+            echo "Starting post-tournament matchmaking..."
             python3 -u user_interface.py matchmaking
           fi
