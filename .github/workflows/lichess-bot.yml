@@ -52,6 +52,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v5
 
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-runs@v0.14.0
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_id: lichess-bot.yml
+          cancel_in_progress: true
+          cancel_queued: true
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
