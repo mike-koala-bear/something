@@ -1,28 +1,14 @@
-name: Run Botli Hybrid Tournament → Matchmaking
+name: Lichess Bot
 
 on:
   workflow_dispatch:
     inputs:
-      upgrade:
-        description: "Upgrade to a Lichess bot account?"
-        required: false
-        type: boolean
-        default: "false"
-      matchmaking:
-        description: "Enable matchmaking before tournament starts?"
-        required: false
-        type: boolean
-        default: "true"
       tournament_id:
-        description: "Tournament ID to auto-join"
+        description: "Tournament ID to auto-join (optional)"
         required: false
         default: ""
-      tournament_duration:
-        description: "Tournament duration in minutes"
-        required: false
-        default: "20"
       additional_command:
-        description: "Optional commands to pass"
+        description: "Optional commands to pass (wrap in quotes)"
         required: false
         default: ""
       never_stop:
@@ -31,118 +17,64 @@ on:
         type: boolean
         default: "true"
 
-permissions:
-  actions: write
-  contents: read
-
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
-    env:
-      LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    if: github.repository_owner == github.actor
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Copy Private Config
-        uses: actions/checkout@v5
-        with:
-          repository: mike-koala-bear/tacticalbot-config
-          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
-          path: tacticalbot-config
-
-      - name: Inject Bot Token
         run: |
-          if [ -f tacticalbot-config/config.yml ]; then
-            cp tacticalbot-config/config.yml ./config.yml
-            sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
-          fi
+          pip install -r requirements.txt
 
-      - name: Join Tournament (if provided)
-        if: ${{ github.event.inputs.tournament_id != '' }}
-        run: |
-          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-          echo "Joining tournament $TOURNAMENT_ID..."
-          curl -s -X POST -H "Authorization: Bearer $LICHESS_TOKEN" \
-            https://lichess.org/api/tournament/$TOURNAMENT_ID/join
-          echo "✅ Tournament join request sent"
-
-      - name: Run Bot with Automatic Matchmaking → Tournament
+      - name: Start bot
+        env:
+          LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           echo "Starting bot..."
-          UPGRADE="${{ github.event.inputs.upgrade }}"
-          MATCHMAKING="${{ github.event.inputs.matchmaking }}"
-          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-          TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
 
-          # Start matchmaking while waiting for tournament
-          if [ "$MATCHMAKING" = "true" ] && [ "$TOURNAMENT_ID" != "" ]; then
-            echo "Playing matchmaking while waiting for tournament..."
-            python3 -u user_interface.py matchmaking &
-            MM_PID=$!
-          fi
+          if [ -n "$TOURNAMENT_ID" ]; then
+            STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+              "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
 
-          # Wait for tournament to start automatically
-          if [ "$TOURNAMENT_ID" != "" ]; then
-            echo "Waiting for tournament $TOURNAMENT_ID to start..."
-            while true; do
-              STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
-                "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
-              if [ "$STATUS" == "started" ]; then
-                echo "Tournament started!"
-                break
-              fi
-              sleep 5
-            done
-          fi
+            if [ "$STATUS" == "started" ]; then
+              echo "Tournament already started! Joining immediately..."
+              python3 -u user_interface.py tournament "$TOURNAMENT_ID"
 
-          # Stop matchmaking once tournament starts
-          [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
+            elif [ "$STATUS" == "created" ]; then
+              echo "Tournament not started yet. Playing matchmaking while waiting..."
+              python3 -u user_interface.py matchmaking &
+              MM_PID=$!
 
-          # Run bot in tournament mode
-          if [ "$TOURNAMENT_ID" != "" ]; then
-            CMD="python3 -u user_interface.py"
-            [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"
-            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-            CMD="$CMD tournament $TOURNAMENT_ID"
-            echo "Running tournament bot: $CMD"
-            eval "$CMD" &
-            BOT_PID=$!
-
-            # Automatically leave tournament after duration
-            (
-              SECONDS=$((TOURNAMENT_DURATION * 60))
-              END=$((SECONDS + $(date +%s)))
-              while kill -0 $BOT_PID 2>/dev/null; do
-                NOW=$(date +%s)
-                if [ "$NOW" -ge "$END" ]; then
-                  echo "Tournament duration reached. Leaving after current game..."
-                  python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
-                  kill -SIGTERM $BOT_PID
+              while true; do
+                STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                  "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
+                if [ "$STATUS" == "started" ]; then
+                  echo "Tournament started!"
+                  [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID
                   break
                 fi
-                sleep 10
+                sleep 5
               done
-            ) &
 
-            wait $BOT_PID
-            echo "Tournament finished."
-          fi
+              python3 -u user_interface.py tournament "$TOURNAMENT_ID"
 
-          # Start matchmaking automatically after tournament if enabled
-          if [ "$MATCHMAKING" = "true" ]; then
-            echo "Starting post-tournament matchmaking..."
+            else
+              echo "Tournament already finished or unknown status. Playing matchmaking..."
+              python3 -u user_interface.py matchmaking
+            fi
+
+          else
+            echo "No tournament provided. Starting matchmaking only..."
             python3 -u user_interface.py matchmaking
           fi
