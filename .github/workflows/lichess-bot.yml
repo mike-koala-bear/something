@@ -35,6 +35,26 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Clone Private Config Repo
+        uses: actions/checkout@v5
+        with:
+          repository: mike-koala-bear/tacticalbot-config
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
+          path: tacticalbot-config
+
+      - name: Copy Private Config
+        run: |
+          if [ -f tacticalbot-config/config.yml ]; then
+            cp tacticalbot-config/config.yml ./config.yml
+          else
+            echo "❌ config.yml not found in tacticalbot-config repo"
+            exit 1
+          fi
+
+      - name: Inject Bot Token
+        run: |
+          sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
+
       - name: Start bot
         env:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
