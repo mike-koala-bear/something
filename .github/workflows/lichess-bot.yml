@@ -7,6 +7,10 @@ on:
         description: "Tournament ID to auto-join (optional)"
         required: false
         default: ""
+      team_id:
+        description: "Team ID for team battle (required if joining a team battle)"
+        required: false
+        default: ""
       additional_command:
         description: "Optional commands to pass (wrap in quotes)"
         required: false
@@ -66,7 +70,7 @@ jobs:
             echo "⚠️ token placeholder not found in config.yml — ensure config uses tokenXXXXX or set LICHESS_TOKEN env."
           fi
 
-      - name: Start bot (fixed parsing + isStarted support)
+      - name: Start bot with team battle support
         env:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
@@ -75,6 +79,7 @@ jobs:
 
           CONFIG_FILE="./config.yml"
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          TEAM_ID="${{ github.event.inputs.team_id }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
 
           if [ -z "${LICHESS_TOKEN:-}" ]; then
@@ -89,20 +94,31 @@ jobs:
             exit 1
           fi
 
-          # helper: join tournament and show debug
+          # helper: join tournament (supports normal and team battle)
           join_tournament() {
-            local id="$1"
-            echo "--- POST /api/tournament/$id/join ---"
-            join_resp=$(curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" -w "\n%{http_code}\n%{content_type}" \
-              "https://lichess.org/api/tournament/$id/join" || true)
-            join_code=$(echo "$join_resp" | tail -n2 | head -n1)   # http_code is the 2nd-to-last line
-            join_ctype=$(echo "$join_resp" | tail -n1)            # content_type is last line
+            local team="$1"
+            local tournament="$2"
+
+            if [ -n "$team" ]; then
+              echo "--- POST /api/team-battle/$team/$tournament/join ---"
+              join_resp=$(curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" -w "\n%{http_code}\n%{content_type}" \
+                "https://lichess.org/api/team-battle/$team/$tournament/join" || true)
+            else
+              echo "--- POST /api/tournament/$tournament/join ---"
+              join_resp=$(curl -sS -X POST -H "Authorization: Bearer $LICHESS_TOKEN" -w "\n%{http_code}\n%{content_type}" \
+                "https://lichess.org/api/tournament/$tournament/join" || true)
+            fi
+
+            join_code=$(echo "$join_resp" | tail -n2 | head -n1)
+            join_ctype=$(echo "$join_resp" | tail -n1)
             join_body=$(echo "$join_resp" | sed '$d' | sed '$d' || true)
+
             echo "Join HTTP: $join_code   content-type: $join_ctype"
             if [ -n "$join_body" ]; then
               echo "Join body (preview):"
               echo "$join_body" | sed -n '1,80p'
             fi
+
             if [ "$join_code" = "200" ] || [ "$join_code" = "204" ]; then
               echo "✅ join success (HTTP $join_code)"
               return 0
@@ -111,67 +127,41 @@ jobs:
             return 1
           }
 
-          # Primary loop
+          # Main loop: join tournament or team battle
           if [ -n "$TOURNAMENT_ID" ]; then
-            echo "Tournament requested: $TOURNAMENT_ID"
+            echo "Tournament requested: $TOURNAMENT_ID  Team: $TEAM_ID"
 
             while true; do
-              # fetch tournament metadata + append http_code and content_type (http_code then content_type)
+              # fetch tournament metadata
               compact=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
                 -w "\n%{http_code}\n%{content_type}" \
                 "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
-
-              # CORRECT PARSING:
-              # curl -w prints: <body>\n<http_code>\n<content_type>
               body=$(echo "$compact" | sed '$d' | sed '$d' || true)
-              code=$(echo "$compact" | tail -n2 | head -n1)   # second-to-last line is HTTP code
-              ctype=$(echo "$compact" | tail -n1)            # last line is content-type
+              code=$(echo "$compact" | tail -n2 | head -n1)
+              ctype=$(echo "$compact" | tail -n1)
 
               echo "Polled tournament: HTTP $code   content-type: $ctype"
-              if [ -n "$body" ]; then
-                echo "Body preview:"
-                echo "$body" | sed -n '1,80p'
-                echo "----"
-              else
-                echo "(empty body)"
-              fi
-
-              # handle non-200 HTTP
               if [ "$code" != "200" ]; then
-                echo "Non-200 response fetching tournament (HTTP $code)."
-                if [ "$code" = "404" ]; then
-                  echo "404: tournament not found — verify ID."
-                  exit 1
-                elif [ "$code" = "403" ]; then
-                  echo "403: token missing/invalid or lacks permission."
-                  exit 1
-                else
-                  echo "Transient/non-OK HTTP $code — retrying in 5s..."
-                  sleep 5
-                  continue
-                fi
+                echo "Non-200 response fetching tournament (HTTP $code). Retrying in 5s..."
+                sleep 5
+                continue
               fi
 
-              # ensure JSON before jq
               if ! echo "$ctype" | grep -qi 'application/json'; then
-                echo "Content-type not JSON ($ctype). Likely HTML or login page — check token/header."
+                echo "Content-type not JSON ($ctype) — check token/header."
                 exit 1
               fi
 
-              # Determine logical tournament status:
-              # Prefer .status when present; otherwise fallback to .isStarted (boolean)
+              # determine tournament status
               json_status=$(echo "$body" | jq -r '.status // empty' 2>/dev/null || true)
               if [ -n "$json_status" ]; then
                 status="$json_status"
               else
-                # fallback to isStarted boolean -> map to 'started' or 'created'
                 is_started=$(echo "$body" | jq -r '.isStarted // empty' 2>/dev/null || true)
                 if [ "$is_started" = "true" ]; then
                   status="started"
-                elif [ "$is_started" = "false" ]; then
-                  status="created"
                 else
-                  status="unknown"
+                  status="created"
                 fi
               fi
 
@@ -182,46 +172,28 @@ jobs:
                 python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking &
                 MM_PID=$!
 
-                # Poll until not-created
+                # poll until tournament starts
                 while true; do
-                  compact2=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
-                    -w "\n%{http_code}\n%{content_type}" \
+                  sleep 5
+                  new_body=$(curl -sS -H "Authorization: Bearer $LICHESS_TOKEN" -H "Accept: application/json" \
                     "https://lichess.org/api/tournament/$TOURNAMENT_ID" || true)
-                  new_body=$(echo "$compact2" | sed '$d' | sed '$d' || true)
-                  new_code=$(echo "$compact2" | tail -n2 | head -n1)
-                  new_ctype=$(echo "$compact2" | tail -n1)
-                  if [ "$new_code" != "200" ]; then
-                    echo "Warning: non-200 while waiting (HTTP $new_code). Keep waiting."
-                    sleep 5
-                    continue
-                  fi
                   new_is_started=$(echo "$new_body" | jq -r '.isStarted // empty' 2>/dev/null || true)
-                  new_status=$(echo "$new_body" | jq -r '.status // empty' 2>/dev/null || true)
-                  if [ -n "$new_status" ]; then
-                    cur_status="$new_status"
-                  elif [ "$new_is_started" = "true" ]; then
-                    cur_status="started"
-                  else
-                    cur_status="created"
-                  fi
-                  echo "Waiting poll -> status: $cur_status"
-                  if [ "$cur_status" != "created" ]; then
-                    echo "Status changed -> $cur_status. Stopping matchmaking."
+                  if [ "$new_is_started" = "true" ]; then
+                    echo "Tournament started! Stopping matchmaking."
                     [ -n "${MM_PID:-}" ] && kill -SIGTERM "$MM_PID" || true
                     wait "${MM_PID:-}" 2>/dev/null || true
                     break
                   fi
-                  sleep 5
+                  echo "Still waiting for tournament to start..."
                 done
-                # outer while continues to handle new status
               fi
 
               if [ "$status" = "started" ]; then
-                echo "Tournament is started. Attempting to join (retries)..."
+                echo "Tournament started. Attempting to join..."
                 joined=1
                 for i in 1 2 3 4 5; do
                   echo "Join attempt #$i"
-                  if join_tournament "$TOURNAMENT_ID"; then
+                  if join_tournament "$TEAM_ID" "$TOURNAMENT_ID"; then
                     joined=0
                     break
                   fi
@@ -229,20 +201,20 @@ jobs:
                 done
 
                 if [ $joined -ne 0 ]; then
-                  echo "WARNING: join attempts failed. Check join output above (403/422/404)."
+                  echo "⚠️ Join attempts failed. Check token, tournament, or team ID."
                 fi
 
-                echo "Launching tournament mode (explicit --config) ..."
+                echo "Launching tournament mode..."
                 CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID"
                 [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
                 echo "CMD: $CMD"
                 eval "$CMD"
-                echo "Tournament mode ended (bot left/finished tournament mode)."
+                echo "Tournament mode ended."
                 break
               fi
 
               if [ "$status" = "finished" ]; then
-                echo "Tournament finished already -> starting matchmaking."
+                echo "Tournament already finished -> starting matchmaking only."
                 python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking
                 break
               fi
