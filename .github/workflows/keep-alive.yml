@@ -1,47 +1,136 @@
-name: Keep Bot Alive
+name: Continuous Lichess Bot
 
 on:
   schedule:
     # Run every 5 hours to ensure continuous operation
     - cron: "0 */5 * * *"
   workflow_dispatch:
+    inputs:
+      upgrade:
+        description: "Upgrade to a Lichess bot account?"
+        required: false
+        type: boolean
+        default: "false"
+      matchmaking:
+        description: "Enable matchmaking before tournament starts?"
+        required: false
+        type: boolean
+        default: "true"
+      tournament_id:
+        description: "Tournament ID to auto-join (optional)"
+        required: false
+        default: ""
+      tournament_duration:
+        description: "Tournament duration in minutes"
+        required: false
+        default: "20"
+      additional_command:
+        description: "Optional commands to pass"
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
-  keep-alive:
+  run-bot:
     runs-on: ubuntu-latest
-    if: github.repository_owner == github.actor
+    timeout-minutes: 355 # under GitHub 6h limit
+    env:
+      LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Copy private config
         uses: actions/checkout@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
+          repository: mike-koala-bear/tacticalbot-config
+          token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
+          path: tacticalbot-config
 
-      - name: Keep repository active
+      - name: Inject config
         run: |
-          # Update a timestamp file to keep the repo active
-          echo "Last keep-alive: $(date -u)" > .github/keep-alive.txt
+          if [ -f tacticalbot-config/config.yml ]; then
+            cp tacticalbot-config/config.yml ./config.yml
+          fi
+          sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
 
-          # Configure git
-          git config --local user.email "55577@pm.me"
-          git config --local user.name "mike-koala-bear"
+      - name: Run bot
+        run: |
+          echo "Starting bot..."
+          UPGRADE="${{ github.event.inputs.upgrade }}"
+          MATCHMAKING="${{ github.event.inputs.matchmaking }}"
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
 
-          # Commit and push if there are changes
-          if ! git diff --quiet; then
-            git add .github/keep-alive.txt
-            git commit -m "🤖 Keep-alive: $(date -u)"
-            git push
-            echo "✅ Keep-alive commit pushed"
-          else
-            echo "ℹ️ No changes to commit"
+          # Start matchmaking if enabled
+          if [ "$MATCHMAKING" = "true" ] && [ "$TOURNAMENT_ID" != "" ]; then
+            echo "Playing matchmaking while waiting for tournament..."
+            python3 -u user_interface.py matchmaking &
+            MM_PID=$!
           fi
 
-      - name: Trigger main bot workflow
-        run: |
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/lichess-bot.yml/dispatches \
-            -d '{"ref":"${{ github.ref_name }}"}'
-          echo "✅ Bot workflow triggered"
+          # Wait for tournament to start
+          if [ "$TOURNAMENT_ID" != "" ]; then
+            echo "Waiting for tournament $TOURNAMENT_ID to start..."
+            while true; do
+              STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
+                "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
+              if [ "$STATUS" == "started" ]; then
+                echo "Tournament started!"
+                break
+              fi
+              sleep 5
+            done
+          fi
+
+          # Kill matchmaking if running
+          [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
+
+          # Run bot in tournament mode
+          if [ "$TOURNAMENT_ID" != "" ]; then
+            CMD="python3 -u user_interface.py"
+            [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"
+            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+            CMD="$CMD tournament $TOURNAMENT_ID"
+            echo "Running tournament bot: $CMD"
+            eval "$CMD" &
+            BOT_PID=$!
+
+            # Monitor tournament duration
+            (
+              END=$(( $(date +%s) + TOURNAMENT_DURATION*60 ))
+              while kill -0 $BOT_PID 2>/dev/null; do
+                NOW=$(date +%s)
+                if [ "$NOW" -ge "$END" ]; then
+                  echo "Tournament duration reached. Leaving after current game..."
+                  python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
+                  kill -SIGTERM $BOT_PID
+                  break
+                fi
+                sleep 10
+              done
+            ) &
+
+            wait $BOT_PID
+            echo "Tournament finished."
+          fi
+
+          # Continue matchmaking post-tournament
+          if [ "$MATCHMAKING" = "true" ]; then
+            echo "Starting post-tournament matchmaking..."
+            python3 -u user_interface.py matchmaking
+          fi

@@ -17,10 +17,6 @@ on:
         description: "Tournament ID to auto-join"
         required: false
         default: ""
-      tournament_wait:
-        description: "Max seconds to wait before tournament starts (for matchmaking)"
-        required: false
-        default: "60"
       tournament_duration:
         description: "Tournament duration in minutes"
         required: false
@@ -45,20 +41,11 @@ jobs:
     timeout-minutes: 355
     env:
       LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
-      PRIVATE_CONFIG_TOKEN: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
-
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-runs@v0.14.0
-        with:
-          access_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_id: lichess-bot.yml
-          cancel_in_progress: true
-          cancel_queued: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -75,15 +62,11 @@ jobs:
           token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
           path: tacticalbot-config
 
-      - name: Inject Lichess Token into Config
+      - name: Inject Bot Token
         run: |
           if [ -f tacticalbot-config/config.yml ]; then
             cp tacticalbot-config/config.yml ./config.yml
             sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
-            echo "✅ Config copied and token injected"
-          else
-            echo "❌ tacticalbot-config/config.yml not found!"
-            exit 1
           fi
 
       - name: Join Tournament (if provided)
@@ -95,14 +78,13 @@ jobs:
             https://lichess.org/api/tournament/$TOURNAMENT_ID/join
           echo "✅ Tournament join request sent"
 
-      - name: Run Bot with Hybrid Mode
+      - name: Run Bot with Automatic Matchmaking → Tournament
         run: |
           echo "Starting bot..."
           UPGRADE="${{ github.event.inputs.upgrade }}"
           MATCHMAKING="${{ github.event.inputs.matchmaking }}"
           ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-          TOURNAMENT_WAIT="${{ github.event.inputs.tournament_wait }}"
           TOURNAMENT_DURATION="${{ github.event.inputs.tournament_duration }}"
 
           # Start matchmaking while waiting for tournament
@@ -112,27 +94,21 @@ jobs:
             MM_PID=$!
           fi
 
-          # Wait for tournament to start
+          # Wait for tournament to start automatically
           if [ "$TOURNAMENT_ID" != "" ]; then
-            START=$(date +%s)
+            echo "Waiting for tournament $TOURNAMENT_ID to start..."
             while true; do
               STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
                 "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
-              NOW=$(date +%s)
-              ELAPSED=$((NOW-START))
               if [ "$STATUS" == "started" ]; then
                 echo "Tournament started!"
-                break
-              elif [ "$ELAPSED" -ge "$TOURNAMENT_WAIT" ]; then
-                echo "Tournament not started within wait time. Stopping matchmaking..."
-                [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID
                 break
               fi
               sleep 5
             done
           fi
 
-          # Kill matchmaking if still running
+          # Stop matchmaking once tournament starts
           [ -n "$MM_PID" ] && kill -SIGTERM $MM_PID || true
 
           # Run bot in tournament mode
@@ -145,7 +121,7 @@ jobs:
             eval "$CMD" &
             BOT_PID=$!
 
-            # Watch tournament duration
+            # Automatically leave tournament after duration
             (
               SECONDS=$((TOURNAMENT_DURATION * 60))
               END=$((SECONDS + $(date +%s)))
@@ -165,7 +141,7 @@ jobs:
             echo "Tournament finished."
           fi
 
-          # Start post-tournament matchmaking automatically
+          # Start matchmaking automatically after tournament if enabled
           if [ "$MATCHMAKING" = "true" ]; then
             echo "Starting post-tournament matchmaking..."
             python3 -u user_interface.py matchmaking
