@@ -1,4 +1,4 @@
-name: Lichess Bot
+name: Lichess Bot Hybrid Tournament → Matchmaking
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: false
         default: ""
       additional_command:
-        description: "Optional commands to pass (wrap in quotes)"
+        description: "Optional commands to pass"
         required: false
         default: ""
       never_stop:
@@ -17,13 +17,17 @@ on:
         type: boolean
         default: "true"
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     if: github.repository_owner == github.actor
 
     steps:
-      - name: Checkout repo
+      - name: Checkout main repo
         uses: actions/checkout@v5
 
       - name: Setup Python
@@ -32,8 +36,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Clone Private Config Repo
         uses: actions/checkout@v5
@@ -60,20 +63,29 @@ jobs:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           echo "Starting bot..."
-
+          CONFIG_FILE="./config.yml"
           TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
 
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file not found!"
+            exit 1
+          fi
+
+          # Tournament logic
           if [ -n "$TOURNAMENT_ID" ]; then
             STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
               "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
 
             if [ "$STATUS" == "started" ]; then
               echo "Tournament already started! Joining immediately..."
-              python3 -u user_interface.py tournament "$TOURNAMENT_ID"
+              CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID"
+              [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+              eval "$CMD"
 
             elif [ "$STATUS" == "created" ]; then
               echo "Tournament not started yet. Playing matchmaking while waiting..."
-              python3 -u user_interface.py matchmaking &
+              python3 -u user_interface.py --config "$CONFIG_FILE" matchmaking &
               MM_PID=$!
 
               while true; do
@@ -87,14 +99,20 @@ jobs:
                 sleep 5
               done
 
-              python3 -u user_interface.py tournament "$TOURNAMENT_ID"
+              CMD="python3 -u user_interface.py --config $CONFIG_FILE tournament $TOURNAMENT_ID"
+              [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+              eval "$CMD"
 
             else
               echo "Tournament already finished or unknown status. Playing matchmaking..."
-              python3 -u user_interface.py matchmaking
+              CMD="python3 -u user_interface.py --config $CONFIG_FILE matchmaking"
+              [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+              eval "$CMD"
             fi
 
           else
             echo "No tournament provided. Starting matchmaking only..."
-            python3 -u user_interface.py matchmaking
+            CMD="python3 -u user_interface.py --config $CONFIG_FILE matchmaking"
+            [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
+            eval "$CMD"
           fi
