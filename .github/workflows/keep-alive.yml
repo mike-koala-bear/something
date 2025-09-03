@@ -1,29 +1,51 @@
-name: Continuous Lichess Bot (8PM-2AM)
+name: Run botli
 
 on:
   workflow_dispatch:
     inputs:
-      tournament_id:
-        description: "Tournament ID to auto-join"
-        required: true
-      team_id:
-        description: "Team ID for the battle"
-        required: true
+      upgrade:
+        description: "Upgrade to a Lichess bot account?"
+        required: false
+        type: boolean
+        default: "false"
+      matchmaking:
+        description: "Enable matchmaking?"
+        required: false
+        type: boolean
+        default: "true"
       additional_command:
-        description: "Optional commands to pass"
+        description: "Optional commands to pass (wrap in quotes)"
         required: false
         default: ""
+      never_stop:
+        description: "Never stop matchmaking unless it stops itself"
+        required: false
+        type: boolean
+        default: "true"
+      stop_seconds:
+        description: "Seconds to wait before sending stop command (ignored if never_stop ticked)"
+        required: false
+        default: ""
+
+  push:
+    branches:
+      - "main"
+    paths:
+      - "user_interface.py"
+
+  schedule:
+    - cron: "0 */6 * * *" # Runs at 00:00, 06:00, 12:00, 18:00 UTC
 
 permissions:
   actions: write
   contents: read
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # Just under 6h
+    timeout-minutes: 355
     env:
-      LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
+      LICHESS_BOT_TOKEN: ${{ secrets.LICHESS_KEY }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -35,7 +57,15 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install dependencies
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
       - name: Copy private config
@@ -45,58 +75,70 @@ jobs:
           token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
           path: tacticalbot-config
 
-      - name: Inject Bot Token
+      - name: Inject Lichess token
         run: |
           cp tacticalbot-config/config.yml ./config.yml
           sed -i "s/tokenXXXXX/${{ secrets.LICHESS_TOKEN }}/g" config.yml
 
-      - name: Run bot
+      - name: Install GitHub CLI
         run: |
-          TOURNAMENT_ID="${{ github.event.inputs.tournament_id }}"
-          TEAM_ID="${{ github.event.inputs.team_id }}"
-          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}
+          type -p gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&  
+          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg &&  
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&  
+          sudo apt update && sudo apt install gh -y)
 
-          # Start matchmaking while waiting for tournament
-          echo "Starting matchmaking..."
-          python3 -u user_interface.py matchmaking &
-          MM_PID=$!
+      - name: Cancel any previous active workflows
+        run: |
+          echo "Checking for previous active workflows..."  
+          CURRENT_RUN_ID=${{ github.run_id }}  
 
-          # Wait for tournament start
-          echo "Waiting for tournament $TOURNAMENT_ID..."
-          while true; do
-              STATUS=$(curl -s -H "Authorization: Bearer $LICHESS_TOKEN" \
-                "https://lichess.org/api/tournament/$TOURNAMENT_ID" | jq -r '.status')
-              if [ "$STATUS" == "started" ]; then
-                  echo "Tournament started!"
-                  break
-              fi
-              sleep 5
-          done
+          RUNS=$(gh run list --workflow "Run botli" --status in_progress --json databaseId --jq ".[].databaseId" | grep -v "^$" | grep -v "$CURRENT_RUN_ID" || true)  
 
-          # Stop matchmaking
-          kill -SIGTERM $MM_PID || true
+          if [ -n "$RUNS" ]; then  
+            echo "Found previous active workflow(s): $RUNS"  
+            for RUN_ID in $RUNS; do  
+              echo "Cancelling workflow $RUN_ID..."  
+              gh run cancel "$RUN_ID"  
+            done  
+          else  
+            echo "No previous active workflows found."  
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          # Run tournament
-          CMD="python3 -u user_interface.py tournament $TOURNAMENT_ID $TEAM_ID"
-          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"
-          echo "Running tournament bot: $CMD"
-          eval "$CMD" &
-          BOT_PID=$!
-
-          # Monitor 2AM end (job timeout safe exit)
-          END=$(( $(date -d "02:00 next day" +%s) ))
-          (
-            while kill -0 $BOT_PID 2>/dev/null; do
-              NOW=$(date +%s)
-              if [ "$NOW" -ge "$END" ]; then
-                echo "Reached 2AM. Leaving tournament..."
-                python3 user_interface.py leave_tournament "$TOURNAMENT_ID"
-                kill -SIGTERM $BOT_PID
-                break
-              fi
-              sleep 10
-            done
-          ) &
-
-          wait $BOT_PID
-          echo "Workflow 1 finished."
+      - name: Run Bot
+        run: |
+          echo "Starting bot..."  
+            
+          UPGRADE="${{ github.event.inputs.upgrade }}"  
+          MATCHMAKING="${{ github.event.inputs.matchmaking }}"  
+          ADDITIONAL_CMD=${{ toJSON(github.event.inputs.additional_command) }}  
+          NEVER_STOP="${{ github.event.inputs.never_stop }}"  
+          STOP_SECONDS="${{ github.event.inputs.stop_seconds }}"  
+            
+          CMD="python3 -u user_interface.py"  
+          [ "$UPGRADE" = "true" ] && CMD="$CMD --upgrade"  
+          [ "$MATCHMAKING" = "true" ] && CMD="$CMD matchmaking"  
+          [ -n "$ADDITIONAL_CMD" ] && CMD="$CMD $ADDITIONAL_CMD"  
+            
+          echo "Running command: $CMD"  
+          eval "$CMD" &  
+          BOT_PID=$!  
+            
+          if [ "$MATCHMAKING" = "true" ]; then  
+            if [ "$NEVER_STOP" = "true" ]; then  
+              echo "Never stop ticked. Stop command will not run."  
+            else  
+              if ! [[ "$STOP_SECONDS" =~ ^[0-9]+$ ]] || [ "$STOP_SECONDS" -le 0 ]; then  
+                echo "Invalid stop_seconds input: $STOP_SECONDS. Skipping stop."  
+              else  
+                echo "Scheduling stop command in $STOP_SECONDS seconds..."  
+                ( sleep "$STOP_SECONDS" && echo "Running stop command..." && python3 -u user_interface.py stop ) &  
+              fi  
+            fi  
+          fi  
+            
+          ( sleep 21000 && echo "Time up. Killing bot..." && kill -SIGTERM $BOT_PID ) &  
+            
+          wait $BOT_PID  
+          echo "Bot ended cleanly."
