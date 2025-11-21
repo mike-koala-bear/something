@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,7 +31,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Copy private config
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: mike-koala-bear/tacticalbot-config
           token: ${{ secrets.PRIVATE_CONFIG_TOKEN }}
